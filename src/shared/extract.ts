@@ -8,7 +8,8 @@ import {
   fieldForKey, normalizeRecord, normalizeText, parseDbJson, parseTags, slugify
 } from './normalize.ts';
 import type { DbRecord, Grafico } from './types.ts';
-import { graficiDellaParte, graficoToText, relazioni, tabellaToGrafico, tabelleDrawing } from './charts.ts';
+import { graficiDellaParte, graficoToText, relazioni, tabellaToGrafico, tabelleDrawing, type RisolviRiferimento } from './charts.ts';
+import { leggiFoglio } from './fogli.ts';
 
 // ============================================================ utilità
 
@@ -82,7 +83,7 @@ export function titoliUnici(): (g: Grafico) => Grafico {
   return (g) => {
     const base = g.titolo;
     let t = base;
-    if (seen.has(t.toLowerCase()) && g.posizione) t = `${base} (${g.posizione})`;
+    if (seen.has(t.toLowerCase()) && g.posizione) t = `${base} (${g.posizione.replace(/^Foglio «(.*)»$/, '$1')})`;
     for (let n = 2; seen.has(t.toLowerCase()); n++) t = `${base} ${n}`;
     g.titolo = t;
     seen.add(t.toLowerCase());
@@ -96,6 +97,8 @@ export const intestazioneTabella = (g: Grafico) => `Tabella «${g.titolo}»${g.p
 export interface Sheet {
   name: string;
   rows: string[][];
+  /** numero di riga (da 1) di ogni riga, solo per Excel: serve a separare le tabelle di un foglio */
+  righe?: number[];
   /** grafici inseriti nel foglio (dati salvati nel file) */
   grafici?: Grafico[];
 }
@@ -284,7 +287,20 @@ function colIndex(ref: string): number {
   return n - 1;
 }
 
-/** Legge i fogli visibili di un file Excel: righe di testo (date in formato gg/mm/aaaa). */
+/** Colonna "AB" → 27 (da 1). */
+export function colNumber(letters: string): number {
+  let n = 0;
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+const BUILTIN_PERCENT = new Set([9, 10]);
+
+/**
+ * Legge i fogli visibili di un file Excel: righe di testo, con il numero di riga originale.
+ * Date in formato gg/mm/aaaa, percentuali come "61.3%", importi in euro come "€ 1200" (dal formato delle celle).
+ * I grafici del foglio arrivano con i dati salvati nel file; se mancano, letti dalle celle a cui rimandano.
+ */
 export function readXlsx(bytes: Uint8Array): Sheet[] {
   const files = unzip(bytes);
   const workbook = xmlOf(files, 'xl/workbook.xml');
@@ -299,11 +315,14 @@ export function readXlsx(bytes: Uint8Array): Sheet[] {
   const customFormats = new Map<number, string>();
   for (const m of styles.matchAll(/<numFmt\s[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)) customFormats.set(+m[1], decodeXml(m[2]));
   const xfs = styles.match(/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1] ?? '';
-  const dateStyle = [...xfs.matchAll(/<xf\b[^>]*?numFmtId="(\d+)"/g)].map((m) => {
+  const formats = [...xfs.matchAll(/<xf\b[^>]*?numFmtId="(\d+)"/g)].map((m) => {
     const id = +m[1];
-    if (BUILTIN_DATE_FORMATS.has(id)) return true;
-    const code = (customFormats.get(id) ?? '').replace(/"[^"]*"|\[[^\]]*\]/g, '');
-    return /[dy]/i.test(code) || /m{1,4}[^:]*[dy]|[dy][^:]*m/i.test(code);
+    const raw = customFormats.get(id) ?? '';
+    const code = raw.replace(/"[^"]*"|\[[^\]]*\]/g, '');
+    if (BUILTIN_DATE_FORMATS.has(id) || /[dy]/i.test(code) || /m{1,4}[^:]*[dy]|[dy][^:]*m/i.test(code)) return 'data' as const;
+    if (BUILTIN_PERCENT.has(id) || code.includes('%')) return 'percento' as const;
+    if (/€|\[\$€|EUR/i.test(raw)) return 'euro' as const;
+    return '' as const;
   });
 
   const rels = new Map<string, string>();
@@ -314,7 +333,8 @@ export function readXlsx(bytes: Uint8Array): Sheet[] {
     if (id && target) rels.set(id, target.replace(/^\/?(xl\/)?/, 'xl/'));
   }
 
-  const sheets: Sheet[] = [];
+  // prima tutte le celle di tutti i fogli (i grafici possono rimandare a fogli diversi), poi i grafici
+  const fogli: { name: string; path: string; xml: string; rows: string[][]; righe: number[]; celle: Map<string, string> }[] = [];
   for (const m of workbook.matchAll(/<sheet\b([^>]*)\/?>/g)) {
     const attrs = m[1];
     if (/state="(hidden|veryHidden)"/.test(attrs)) continue;
@@ -323,20 +343,18 @@ export function readXlsx(bytes: Uint8Array): Sheet[] {
     const sheetPath = rels.get(rid) ?? '';
     const xml = xmlOf(files, sheetPath);
     if (!xml) continue;
-    // grafici: foglio → disegno → grafico
-    const grafici: Grafico[] = [];
-    for (const [id, target] of relazioni(files, sheetPath)) {
-      if (!/drawings\/drawing\d+\.xml$/.test(target) || !xml.includes(`r:id="${id}"`)) continue;
-      grafici.push(...graficiDellaParte(files, target, `Foglio «${name}»`));
-    }
     const rows: string[][] = [];
-    for (const r of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+    const righe: number[] = [];
+    const celle = new Map<string, string>();
+    let rowNum = 0;
+    for (const r of xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
+      rowNum = Number(r[1].match(/\br="(\d+)"/)?.[1] ?? rowNum + 1);
       const vals: string[] = [];
-      for (const c of r[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      for (const c of r[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
         const a = c[1];
         const inner = c[2] ?? '';
-        const ref = a.match(/r="([A-Z]+)\d+"/)?.[1];
-        const idx = ref ? colIndex(ref) : vals.length;
+        const ref = a.match(/r="([A-Z]+)(\d+)"/);
+        const idx = ref ? colIndex(ref[1]) : vals.length;
         const type = a.match(/t="([^"]+)"/)?.[1];
         const style = Number(a.match(/s="(\d+)"/)?.[1] ?? 0);
         const v = inner.match(/<v>([\s\S]*?)<\/v>/)?.[1];
@@ -348,16 +366,46 @@ export function readXlsx(bytes: Uint8Array): Sheet[] {
         else if (type === 'e') out = '';
         else if (v != null && v !== '') {
           const num = Number(v);
-          out = dateStyle[style] && Number.isFinite(num) ? excelSerialToDate(num, date1904) : String(parseFloat(num.toPrecision(15)));
+          const f = formats[style];
+          if (!Number.isFinite(num)) out = v;
+          else if (f === 'data') out = excelSerialToDate(num, date1904);
+          else if (f === 'percento') out = `${parseFloat((num * 100).toPrecision(12))}%`;
+          else if (f === 'euro') out = `€ ${parseFloat(num.toPrecision(15))}`;
+          else out = String(parseFloat(num.toPrecision(15)));
         }
         vals[idx] = out.trim();
+        if (out.trim()) celle.set(`${ref?.[1] ?? ''}${rowNum}`, out.trim());
       }
       for (let i = 0; i < vals.length; i++) vals[i] ??= '';
-      if (vals.some((x) => x)) rows.push(vals);
+      if (vals.some((x) => x)) { rows.push(vals); righe.push(rowNum); }
     }
-    if (rows.length || grafici.length) sheets.push({ name, rows, ...(grafici.length ? { grafici } : {}) });
+    fogli.push({ name, path: sheetPath, xml, rows, righe, celle });
   }
-  return sheets;
+
+  // riferimenti dei grafici ('Foglio'!$A$1:$A$9) → celle
+  const byName = new Map(fogli.map((f) => [f.name, f]));
+  const cella = (sheet: string, col: string, row: number) => byName.get(sheet)?.celle.get(`${col}${row}`) ?? '';
+  const risolvi: RisolviRiferimento = (ref) => {
+    const m = ref.replace(/\$/g, '').match(/^(?:'((?:[^']|'')+)'|([^!]+))!([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/);
+    if (!m) return null;
+    const sheet = (m[1] ?? m[2]).replace(/''/g, "'");
+    const c1 = colNumber(m[3]), r1 = +m[4], c2 = m[5] ? colNumber(m[5]) : c1, r2 = m[6] ? +m[6] : r1;
+    const letter = (n: number) => { let s2 = ''; for (let x = n; x > 0; x = Math.floor((x - 1) / 26)) s2 = String.fromCharCode(65 + ((x - 1) % 26)) + s2; return s2; };
+    const valori: string[] = [];
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) valori.push(cella(sheet, letter(c), r));
+    // intestazione: la cella sopra (serie in colonna) o a sinistra (serie in riga)
+    const intestazione = c1 === c2 ? cella(sheet, letter(c1), r1 - 1) : r1 === r2 && c1 > 1 ? cella(sheet, letter(c1 - 1), r1) : '';
+    return { valori, intestazione };
+  };
+
+  return fogli.map((f) => {
+    const grafici: Grafico[] = [];
+    for (const [id, target] of relazioni(files, f.path)) {
+      if (!/drawings\/drawing\d+\.xml$/.test(target) || !f.xml.includes(`r:id="${id}"`)) continue;
+      grafici.push(...graficiDellaParte(files, target, `Foglio «${f.name}»`, risolvi));
+    }
+    return { name: f.name, rows: f.rows, righe: f.righe, ...(grafici.length ? { grafici } : {}) };
+  }).filter((f) => f.rows.length || f.grafici);
 }
 
 // ============================================================ testo, Markdown, PDF, HTML
@@ -537,6 +585,14 @@ export function sheetsToRecords(sheets: Sheet[], ctx: ExtractContext): DbRecord[
         if (ctx.defaults.tag.length) res.record.tag = parseTags([...ctx.defaults.tag, ...res.record.tag]);
         records.push(res.record);
       });
+    } else if (sh.rows.length && sh.righe) {
+      // Excel: il foglio può contenere più tabelle, riquadri di numeri chiave, note e grafici
+      const letto = leggiFoglio(sh.name, sh.rows, sh.righe, sh.grafici ?? [], unico);
+      const nuovi = letto.grafici;
+      grafici.push(...nuovi);
+      const excel = nuovi.filter((g) => (sh.grafici ?? []).includes(g));
+      texts.push([`## ${sh.name}`, letto.testo, ...excel.map((g) => graficoToText(g))].filter(Boolean).join('\n\n'));
+      continue;
     } else if (sh.rows.length) {
       // tabella numerica: anche come grafico (i fogli molto lunghi restano solo testo)
       const g = tabellaToGrafico(sh.rows, {

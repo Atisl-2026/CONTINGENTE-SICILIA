@@ -25,6 +25,8 @@ export function parseNumero(raw: unknown, decimalePunto = false): number | null 
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
   s = s.replace(/^[€$£]|[€$£%‰]$|^(?:eur|euro)|(?:eur|euro)$/gi, '');
   if (/^[+-]/.test(s)) { neg = neg !== (s[0] === '-'); s = s.slice(1); }
+  // notazione scientifica di Excel nei grafici: 8.7167976056864951E-2
+  if (decimalePunto && /^\d+(\.\d+)?e[+-]?\d+$/i.test(s)) return neg ? -Number(s) : Number(s);
   if (!/^\d[\d.,']*$/.test(s)) return undefined;
   s = s.replace(/'/g, '');
   if (decimalePunto) {
@@ -167,8 +169,18 @@ export function tabellaToGrafico(
 
   const righe = body.filter((r) => r[0] && !TOTALE.test(r[0]) && cols.some((c) => typeof num(r[c]) === 'number'));
   if (!righe.length) return null;
+  const distinte = new Set(righe.map((r) => r[0].trim().toLowerCase())).size;
+  if (righe.length >= 6 && distinte < righe.length * 0.9) return null;
   const pct = cols.every((c) => body.filter((r) => r[c]).every((r) => isPercent(r[c])));
-  const hdr = (c: number) => head[c] || `Colonna ${c + 1}`;
+  // colonne in percentuale o in euro dentro una tabella mista: lo dice il nome della serie
+  const tutte = (c: number, re: RegExp) => body.filter((r) => r[c]).every((r) => re.test(r[c].trim()));
+  const suffisso = (c: number) => {
+    const h = head[c] ?? '';
+    if (!pct && tutte(c, /%$/) && !/%/.test(h)) return ' (%)';
+    if (tutte(c, /^€/) && !/€|euro|import/i.test(h)) return ' (€)';
+    return '';
+  };
+  const hdr = (c: number) => `${head[c] || `Colonna ${c + 1}`}${suffisso(c)}`;
 
   let g: Grafico;
   // una sola riga di dati e intestazioni nel tempo (anni, mesi): il tempo va sull'asse orizzontale
@@ -194,6 +206,10 @@ export function tabellaToGrafico(
   g.tipo = tipoAdatto(g);
   return g;
 }
+
+/** «Provincia» → «provincia», ma le sigle restano: «ATECO», «CF». */
+export const minuscolo = (s: string) =>
+  s.split(/(\s+)/).map((w) => (/^[A-ZÀ-Ý0-9.&/]{2,}$/.test(w) ? w : w.toLowerCase())).join('');
 
 // ============================================================ grafici di Office (DrawingML)
 
@@ -225,46 +241,86 @@ const TIPO_OFFICE: [RegExp, TipoGrafico][] = [
   [/^(scatter|bubble)Chart$/, 'linee']
 ];
 
-/** Grafico di Word/PowerPoint/Excel (file chartN.xml) → dati, dai valori salvati nel file. */
-export function leggiGraficoOffice(xml: string, posizione?: string): Grafico | null {
+/** Riferimento di un grafico a celle di Excel ('Foglio'!$B$3:$B$11) → valori e intestazione (cella sopra). */
+export type RisolviRiferimento = (ref: string) => { valori: string[]; intestazione: string } | null;
+
+const formula = (xml: string) => decode(xml.match(/<c:f>([\s\S]*?)<\/c:f>/)?.[1] ?? '').trim();
+
+/**
+ * Grafico di Word/PowerPoint/Excel (file chartN.xml) → dati, dai valori salvati nel file.
+ * Con `risolvi` (Excel): nomi delle serie e titolo mancanti ricavati dalle intestazioni delle celle,
+ * e valori letti dalle celle se il file non li ha salvati nel grafico.
+ */
+export function leggiGraficoOffice(xmlIn: string, posizione?: string, risolvi?: RisolviRiferimento): Grafico | null {
+  // alcuni programmi (es. librerie Python) scrivono i grafici senza il prefisso «c:» sui tag
+  const xml = /<c:chartSpace\b/.test(xmlIn) ? xmlIn : xmlIn.replace(/<(\/?)([A-Za-z]\w*)(?=[\s>/])/g, '<$1c:$2');
   const plot = xml.match(/<c:plotArea>([\s\S]*?)<\/c:plotArea>/)?.[1];
   if (!plot) return null;
   const tipoTag = plot.match(/<c:(\w+Chart)>/)?.[1] ?? '';
   const tipo = TIPO_OFFICE.find(([re]) => re.test(tipoTag))?.[1] ?? 'barre';
 
   let categorie: string[] = [];
+  let intestCategorie = '';
   const serie: Serie[] = [];
   let percentuale = false;
   for (const s of plot.matchAll(/<c:ser>([\s\S]*?)<\/c:ser>/g)) {
     const ser = s[1];
-    const nome = cachePoints(ser.match(/<c:tx>([\s\S]*?)<\/c:tx>/)?.[1] ?? '').pts.get(0)
-      ?? richText(ser.match(/<c:tx>([\s\S]*?)<\/c:tx>/)?.[1] ?? '');
+    const txXml = ser.match(/<c:tx>([\s\S]*?)<\/c:tx>/)?.[1] ?? '';
     const catXml = ser.match(/<c:(?:cat|xVal)>([\s\S]*?)<\/c:(?:cat|xVal)>/)?.[1] ?? '';
     const valXml = ser.match(/<c:(?:val|yVal)>([\s\S]*?)<\/c:(?:val|yVal)>/)?.[1] ?? '';
+    const valRef = risolvi && formula(valXml) ? risolvi(formula(valXml)) : null;
+    let nome = cachePoints(txXml).pts.get(0) ?? richText(txXml);
+    if (!nome && txXml && risolvi && formula(txXml)) nome = risolvi(formula(txXml))?.valori[0] ?? '';
+    if (!nome && valRef?.intestazione) nome = valRef.intestazione;
+
     const val = cachePoints(valXml);
-    if (!val.count) continue;
-    if (/%/.test(val.format)) percentuale = true;
+    let punti: (string | undefined)[];
+    if (val.count) {
+      if (/%/.test(val.format)) percentuale = true;
+      punti = Array.from({ length: val.count }, (_, i) => val.pts.get(i));
+    } else if (valRef?.valori.length) {
+      punti = valRef.valori; // valori dalle celle: già nel formato visibile (es. "61.3%")
+    } else continue;
+
     if (!categorie.length) {
       const cat = cachePoints(catXml);
-      const n = Math.max(cat.count, val.count);
-      categorie = Array.from({ length: n }, (_, i) => cat.pts.get(i) ?? String(i + 1));
+      const catRef = risolvi && formula(catXml) ? risolvi(formula(catXml)) : null;
+      intestCategorie = catRef?.intestazione ?? '';
+      const n = Math.max(cat.count, punti.length);
+      categorie = Array.from({ length: n }, (_, i) => cat.pts.get(i) ?? catRef?.valori[i] ?? String(i + 1));
       if (/[dmy]/i.test(cat.format) && !/general/i.test(cat.format)) {
         // categorie data salvate come numero seriale di Excel
         categorie = categorie.map((c) => (/^\d{5}(\.\d+)?$/.test(c) ? serialeData(Number(c), cat.format) : c));
       }
     }
+    const daCache = !!val.count;
     const valori = categorie.map((_, i) => {
-      const v = val.pts.get(i);
-      return v == null || v === '' ? null : parseNumero(v, true) ?? null;
+      const v = punti[i];
+      if (v == null || v === '') return null;
+      const n = parseNumero(v, daCache || !/,/.test(v));
+      return n == null ? null : n;
     });
-    serie.push({ nome: nome || `Serie ${serie.length + 1}`, valori });
+    if (!daCache && punti.some((v) => v && /%\s*$/.test(v))) percentuale = true;
+    serie.push({ nome: nome || `Serie ${serie.length + 1}`, valori, ...(daCache ? { _cache: true } : {}) } as Serie);
   }
   if (!serie.length || !categorie.length) return null;
-  if (percentuale) for (const s of serie) s.valori = s.valori.map((v) => (v == null ? v : Math.round(v * 10000) / 100));
+  if (percentuale) {
+    for (const s of serie as (Serie & { _cache?: boolean })[]) {
+      if (s._cache) s.valori = s.valori.map((v) => (v == null ? v : parseFloat((v * 100).toPrecision(12))));
+    }
+  }
+  for (const s of serie as (Serie & { _cache?: boolean })[]) delete s._cache;
 
   const titleXml = xml.match(/<c:chart>\s*(?:<[^>]+\/>\s*)*<c:title>([\s\S]*?)<\/c:title>/)?.[1]
     ?? xml.match(/<c:title>([\s\S]*?)<\/c:title>/)?.[1] ?? '';
-  const titolo = richText(titleXml) || (serie.length === 1 ? serie[0].nome : '') || 'Grafico';
+  let titolo = richText(titleXml) || cachePoints(titleXml).pts.get(0) || '';
+  if (!titolo) {
+    const nomi = serie.map((x) => x.nome).filter((x) => !/^Serie \d+$/.test(x));
+    // senza titolo: «Pratiche per provincia», dalle intestazioni delle colonne usate
+    titolo = nomi.length && intestCategorie
+      ? `${nomi.join(', ')} per ${minuscolo(intestCategorie)}`
+      : nomi.join(', ') || 'Grafico';
+  }
   return normalizeGrafico({
     titolo,
     tipo: tipoTag === 'barChart' && /<c:barDir val="bar"/.test(plot) ? 'barre' : tipo,
@@ -309,7 +365,12 @@ function risolvi(dir: string, target: string): string {
 }
 
 /** Grafici richiamati da una parte (documento, diapositiva, disegno), nell'ordine in cui compaiono. */
-export function graficiDellaParte(files: Record<string, Uint8Array>, part: string, posizione?: string): Grafico[] {
+export function graficiDellaParte(
+  files: Record<string, Uint8Array>,
+  part: string,
+  posizione?: string,
+  risolvi?: RisolviRiferimento
+): Grafico[] {
   const xml = files[part] ? strFromU8(files[part]) : '';
   if (!xml) return [];
   const rels = relazioni(files, part);
@@ -319,7 +380,7 @@ export function graficiDellaParte(files: Record<string, Uint8Array>, part: strin
     const path = rels.get(m[1]);
     if (!path || seen.has(path) || !files[path]) continue;
     seen.add(path);
-    const g = leggiGraficoOffice(strFromU8(files[path]), posizione);
+    const g = leggiGraficoOffice(strFromU8(files[path]), posizione, risolvi);
     if (g) out.push(g);
   }
   return out;

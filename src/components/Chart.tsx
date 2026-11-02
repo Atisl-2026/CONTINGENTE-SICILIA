@@ -337,8 +337,10 @@ interface Props {
 export function ChartCard({ g, fonte }: Props) {
   const [tipo, setTipo] = useState<TipoGrafico>(g.tipo);
   const [tabella, setTabella] = useState(g.tipo === 'tabella');
-  const [nascoste, setNascoste] = useState<Set<number>>(new Set());
-  useEffect(() => { setTipo(g.tipo); setNascoste(new Set()); }, [g]);
+  // tabelle con molte colonne di grandezze diverse: si parte dalla prima, le altre si aggiungono dalla legenda
+  const iniziali = () => new Set(g.serie.length >= 3 && scaleDiverse(g, g.serie.map((_, i) => i)) ? g.serie.map((_, i) => i).slice(1) : []);
+  const [nascoste, setNascoste] = useState<Set<number>>(iniziali);
+  useEffect(() => { setTipo(g.tipo); setNascoste(iniziali()); }, [g]);
   const attive = g.serie.map((_, i) => i).filter((i) => !nascoste.has(i));
   const torta = tipo === 'torta' || tipo === 'ciambella';
   const scelte: TipoGrafico[] = ['barre', 'linee', ...(g.categorie.length >= 3 ? (['area'] as TipoGrafico[]) : []),
@@ -382,6 +384,8 @@ export function ChartCard({ g, fonte }: Props) {
       )}
 
       {g.serie.length > 1 && !tabella && tipo !== 'kpi' && (
+        <>
+        {nascoste.size > 0 && !torta && <p class="legend-hint">Tocca le voci per mostrarle o nasconderle.</p>}
         <ul class="legend">
           {g.serie.map((s, i) => (
             <li key={i}>
@@ -392,6 +396,7 @@ export function ChartCard({ g, fonte }: Props) {
             </li>
           ))}
         </ul>
+        </>
       )}
 
       {tabella ? <TabellaDati g={g} /> : separati ? (
