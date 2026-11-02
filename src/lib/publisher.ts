@@ -102,7 +102,7 @@ export async function publish(opts: PublishOptions = {}): Promise<PublishResult>
     const settings = await getSettings();
     if (opts.aiPassword != null) {
       if (opts.aiPassword.length < 8) throw new Error('La password AI deve avere almeno 8 caratteri.');
-      if (!hasAi(settings)) throw new Error('Prima inserisci la chiave Gemini o una AI di riserva (Impostazioni → Intelligenza artificiale).');
+      if (!hasAi(settings)) throw new Error('Prima inserisci la chiave di almeno un servizio AI (Impostazioni).');
       aiKey = await deriveKey(opts.aiPassword);
     }
     if (aiKey && hasAi(settings)) {
@@ -110,6 +110,7 @@ export async function publish(opts: PublishOptions = {}): Promise<PublishResult>
       const share: AiShare = { apiKey: settings.apiKey.trim(), model: settings.model };
       const riserve = Object.fromEntries(configuredReserves(settings.riserve).map((id) => [id, settings.riserve[id]!]));
       if (Object.keys(riserve).length) share.riserve = riserve;
+      if (settings.politica) share.politica = settings.politica;
       ai = await encryptJson(share, aiKey);
     } else {
       // condivisione fatta da un altro telefono: la busta resta com'è

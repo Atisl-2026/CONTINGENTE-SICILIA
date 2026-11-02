@@ -8,9 +8,12 @@ import type { DbRecord } from '../shared/types.ts';
 import { buildChartExtractRequest, MAX_BYTES_AI, MIME_AI, parseChartExtract, toBase64, type LetturaAi } from '../shared/charts-ai.ts';
 import { graficoToText } from '../shared/charts.ts';
 import { titoliUnici } from '../shared/extract.ts';
-import { callGemini } from '../shared/gemini.ts';
-import { withModelFallback } from './model';
+import { PROVIDERS } from '../shared/providers.ts';
+import { availableAi, runAi } from './router';
 import type { Settings } from './settings';
+
+/** Ci sono servizi attivi che leggono PDF e foto (Gemini, Claude, ChatGPT)? */
+export const puoLeggereFile = (s: Settings) => availableAi(s).some((f) => f === 'gemini' || PROVIDERS[f].pdf);
 
 export const ACCEPT = SUPPORTED_EXT.join(',');
 /** Con l'AI si caricano anche foto o schermate di grafici. */
@@ -21,11 +24,10 @@ export async function leggiGraficiConAi(bytes: Uint8Array, ext: string, nome: st
   const mime = MIME_AI[ext];
   if (!mime) throw new Error('formato non leggibile dall\'AI');
   if (bytes.length > MAX_BYTES_AI) throw new Error(`file troppo grande per l'AI (massimo ${MAX_BYTES_AI / 1024 / 1024} MB)`);
-  if (!s.apiKey.trim()) throw new Error('serve la chiave Gemini (Impostazioni)');
+  if (!puoLeggereFile(s)) throw new Error('serve la chiave di Gemini, Claude o ChatGPT (Impostazioni)');
   const req = buildChartExtractRequest(toBase64(bytes), mime, nome);
-  const answer = await withModelFallback(s, (model) =>
-    callGemini(req, { apiKey: s.apiKey, model, timeoutMs: 180000, thinking: 'low' })
-  );
+  // il primo servizio attivo che legge foto e PDF (Gemini, Claude o ChatGPT)
+  const answer = await runAi(s, { request: req, timeoutMs: 180000, signal: new AbortController().signal, thinking: 'low', conta: false });
   return parseChartExtract(answer.text, mime.startsWith('image/'));
 }
 

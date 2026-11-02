@@ -165,7 +165,7 @@ describe('pubblicazione dal telefono (GitHub simulato)', () => {
     const { updateSettings, getSettings } = await import('../src/lib/settings');
     const { checkRemote, applyRemote } = await import('../src/lib/remote');
     await loginAdmin('github_pat_OK', PW, 'Atisl-2026/SICUREZZA');
-    await expect(publish({ aiPassword: 'password-ai-1' })).rejects.toThrow(/chiave Gemini o una AI di riserva/);
+    await expect(publish({ aiPassword: 'password-ai-1' })).rejects.toThrow(/chiave di almeno un servizio AI/);
     await updateSettings({ apiKey: 'AIzaMIA', model: 'gemini-2.5-flash', riserve: { groq: { apiKey: 'gsk_MIA' }, mistral: { apiKey: '  ' } } });
     await publish({ aiPassword: 'password-ai-1' });
     expect(repo.files['data/soci.json']).not.toContain('AIzaMIA');

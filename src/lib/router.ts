@@ -1,16 +1,21 @@
-// Sceglie quale AI usare: prima Gemini, poi le AI gratuite di riserva configurate (Groq, Mistral,
-// OpenRouter). Se un servizio non risponde (limite raggiunto, sovraccarico, lentezza, modello
+// Sceglie quale AI usare, nell'ordine e con le regole decise dal programmatore (servizi attivi, limiti di
+// domande per socio). Se un servizio non risponde (limite raggiunto, sovraccarico, lentezza, modello
 // non disponibile) si passa da soli al successivo; chi ha esaurito la quota viene saltato per un po'.
 import {
   callGemini, cleanModelName, GeminiError, streamGemini, type GeminiAnswer, type GeminiRequest, type ThinkingLevel
 } from '../shared/gemini.ts';
 import {
-  callChat, configuredReserves, hasImages, listChatModels, pickModel, PROVIDERS, type ChatModel, type ProviderId
+  callChat, hasImages, hasPdf, listChatModels, pickModel, PROVIDERS, type ChatModel, type ProviderId
 } from '../shared/providers.ts';
+import { CLAUDE_DEFAULT_MODEL } from '../shared/claude.ts';
+import {
+  conta, descriviLimite, ordineDi, regolaDi, residue, type Conteggi, type Fornitore
+} from '../shared/politica.ts';
 import { withModelFallback } from './model';
 import type { Settings } from './settings';
+import { getAccess } from './access';
 
-export type Fornitore = 'gemini' | ProviderId;
+export type { Fornitore } from '../shared/politica.ts';
 
 export const nomeFornitore = (f: Fornitore) => (f === 'gemini' ? 'Gemini' : PROVIDERS[f].nome);
 
@@ -30,15 +35,48 @@ export interface AiTask {
   skip?: Set<Fornitore>;
   /** compito semplice: con Gemini prima un modello leggero (risparmia la quota del modello principale) */
   leggero?: boolean;
+  /** false = non conta come domanda nei limiti dei soci (es. primo passo dell'analisi di una foto) */
+  conta?: boolean;
 }
 
 export interface AiAnswer extends GeminiAnswer {
   fornitore: Fornitore;
 }
 
-/** Servizi utilizzabili con le chiavi presenti, nell'ordine in cui si provano. */
-export function availableAi(s: Settings): Fornitore[] {
-  return [...(s.apiKey.trim() ? (['gemini'] as Fornitore[]) : []), ...configuredReserves(s.riserve)];
+/** Ha la chiave? */
+export function configurato(s: Settings, f: Fornitore): boolean {
+  return f === 'gemini' ? !!s.apiKey.trim() : !!s.riserve[f]?.apiKey?.trim();
+}
+
+// ------------------------------------------------------------ domande dei soci (contate sul telefono)
+
+const CONTEGGI_STORE = 'contingente-ai-domande';
+
+// se la memoria del browser non è disponibile (navigazione privata) si conta finché l'app resta aperta
+let conteggiInMemoria: Conteggi = {};
+
+export function leggiConteggi(): Conteggi {
+  try {
+    const raw = localStorage.getItem(CONTEGGI_STORE);
+    return raw ? JSON.parse(raw) as Conteggi : conteggiInMemoria;
+  } catch {
+    return conteggiInMemoria;
+  }
+}
+
+function registraDomanda(f: Fornitore) {
+  conteggiInMemoria = conta(leggiConteggi(), f);
+  try { localStorage.setItem(CONTEGGI_STORE, JSON.stringify(conteggiInMemoria)); } catch { /* resta in memoria */ }
+}
+
+/**
+ * Servizi utilizzabili, nell'ordine scelto dal programmatore: con la chiave, attivi e, per un socio,
+ * con domande ancora disponibili.
+ */
+export function availableAi(s: Settings, opts: { socio?: boolean; conteggi?: Conteggi } = {}): Fornitore[] {
+  const c = opts.socio ? opts.conteggi ?? leggiConteggi() : {};
+  return ordineDi(s.politica).filter((f) =>
+    configurato(s, f) && regolaDi(s.politica, f).attivo && (!opts.socio || residue(s.politica, c, f) > 0));
 }
 
 export function hasAi(s: Settings): boolean {
@@ -98,9 +136,16 @@ async function viaReserve(p: ProviderId, s: Settings, t: AiTask): Promise<AiAnsw
   const key = s.riserve[p]!;
   const vision = hasImages(t.request);
   const auto = async () => {
-    const m = pickModel(p, await chatModels(p, key.apiKey), vision);
+    let lista: ChatModel[];
+    try {
+      lista = await chatModels(p, key.apiKey);
+    } catch (e) {
+      if (p === 'claude') return CLAUDE_DEFAULT_MODEL; // elenco non disponibile: il modello economico
+      throw e;
+    }
+    const m = pickModel(p, lista, vision);
     if (!m) {
-      throw new GeminiError('non-supportato', `${PROVIDERS[p].nome}: nessun modello gratuito${vision ? ' che legga le foto' : ''} disponibile.`);
+      throw new GeminiError('non-supportato', `${PROVIDERS[p].nome}: nessun modello${PROVIDERS[p].pagamento ? '' : ' gratuito'}${vision ? ' che legga le foto' : ''} disponibile.`);
     }
     return m;
   };
@@ -120,9 +165,19 @@ async function viaReserve(p: ProviderId, s: Settings, t: AiTask): Promise<AiAnsw
 
 /** Esegue la richiesta con il primo servizio che risponde. */
 export async function runAi(s: Settings, t: AiTask): Promise<AiAnswer> {
-  let order = availableAi(s);
+  const socio = (await getAccess())?.ruolo === 'socio';
+  let order = availableAi(s, { socio });
+  // i PDF li leggono solo Gemini, Claude e ChatGPT
+  if (hasPdf(t.request)) order = order.filter((f) => f === 'gemini' || PROVIDERS[f].pdf);
   if (!order.length) {
-    throw new GeminiError('chiave', 'Nessuna AI configurata: inserisci la chiave Gemini o una AI di riserva nelle Impostazioni.');
+    const esauriti = socio ? availableAi(s).filter((f) => !hasPdf(t.request) || f === 'gemini' || PROVIDERS[f].pdf) : [];
+    if (esauriti.length) {
+      const dettagli = esauriti.map((f) => `${nomeFornitore(f)}: ${descriviLimite(regolaDi(s.politica, f))}`).join('; ');
+      throw new GeminiError('quota', `Hai usato tutte le domande AI a tua disposizione (${dettagli}). I limiti li stabilisce il programmatore; la ricerca nell'archivio resta disponibile.`);
+    }
+    throw new GeminiError('chiave', hasPdf(t.request)
+      ? 'Per leggere i PDF serve Gemini, Claude o ChatGPT: inserisci una di queste chiavi nelle Impostazioni.'
+      : 'Nessuna AI configurata: inserisci la chiave Gemini o un altro servizio AI nelle Impostazioni.');
   }
   if (t.prefer && order.includes(t.prefer)) order = [t.prefer, ...order.filter((f) => f !== t.prefer)];
   const now = Date.now();
@@ -142,6 +197,7 @@ export async function runAi(s: Settings, t: AiTask): Promise<AiAnswer> {
     try {
       const answer = f === 'gemini' ? await viaGemini(s, t) : await viaReserve(f, s, t);
       if (cooldown.delete(f)) saveCooldown();
+      if (socio && t.conta !== false) registraDomanda(f);
       return answer;
     } catch (e) {
       const err = asGeminiError(e);
@@ -169,5 +225,7 @@ export async function runAi(s: Settings, t: AiTask): Promise<AiAnswer> {
 export function resetRouter() {
   cooldown.clear();
   saveCooldown();
+  conteggiInMemoria = {};
+  try { localStorage.removeItem(CONTEGGI_STORE); } catch { /* niente */ }
   modelLists.clear();
 }

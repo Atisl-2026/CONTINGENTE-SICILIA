@@ -80,10 +80,10 @@ export function AdminSecurity({ access, online }: { access: Accesso; online: boo
       <h4 class="subhead">Risposte AI per i soci</h4>
       <p class="muted small">
         {sharing
-          ? 'Attiva: i soci con la password AI usano le tue chiavi (Gemini e AI di riserva; i limiti gratuiti sono condivisi tra tutti). Per toglierla a qualcuno, cambia la password AI. Dopo aver aggiunto una AI di riserva, pubblica perché arrivi anche ai soci.'
-          : 'Non attiva: solo tu usi le risposte AI. Con una password AI le tue chiavi (Gemini e AI di riserva) vengono condivise, cifrate, con chi la conosce.'}
+          ? 'Attiva: i soci con la password AI usano le tue chiavi (Gemini, Claude, ChatGPT e AI di riserva) con le regole scelte in «Regole dei servizi AI». Per toglierla a qualcuno, cambia la password AI. Dopo aver cambiato chiavi o regole, pubblica perché arrivino anche ai soci.'
+          : 'Non attiva: solo tu usi le risposte AI. Con una password AI le tue chiavi (Gemini, Claude, ChatGPT e AI di riserva) e le regole vengono condivise, cifrate, con chi la conosce.'}
       </p>
-      {!hasAi(settings) && <p class="notice small">Per condividere l'AI inserisci prima la chiave Gemini o una AI di riserva qui sopra.</p>}
+      {!hasAi(settings) && <p class="notice small">Per condividere l'AI inserisci prima la chiave di almeno un servizio qui sopra.</p>}
       <NewPassword
         label={sharing ? 'Nuova password AI' : 'Password AI'}
         button={sharing ? 'Cambia password AI' : 'Condividi l\'AI con questa password'}

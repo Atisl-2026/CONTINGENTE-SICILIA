@@ -314,6 +314,26 @@ Da sapere:
 - è un **supporto**: l'AI può non vedere tutto o sbagliare e non sostituisce il sopralluogo né la valutazione del tecnico;
 - ⚠️ sul piano gratuito Google può usare le foto inviate: evita volti riconoscibili, targhe e documenti.
 
+### Servizi AI: Gemini, Claude, ChatGPT e riserve gratuite
+
+In **Impostazioni** il programmatore inserisce le chiavi dei servizi che vuole usare:
+
+| Servizio | Costo | Note |
+|---|---|---|
+| **Gemini** | piano gratuito (con limiti) o a consumo | legge foto e PDF |
+| **Claude** (Anthropic) | a consumo, credito prepagato; modello economico Haiku ≈ 0,1 centesimi a domanda | legge foto e PDF; chiave su platform.claude.com |
+| **ChatGPT** (OpenAI) | a consumo, credito prepagato (separato da ChatGPT Plus) | legge foto e PDF; chiave su platform.openai.com/api-keys |
+| Groq, Mistral, OpenRouter | gratuiti, con limiti | riserve; non leggono i PDF |
+
+In **Regole dei servizi AI** il programmatore sceglie per ogni servizio:
+- **Attivo** sì/no (vale per tutti);
+- l'**ordine** in cui si provano (se il primo non risponde o ha finito le domande si passa al successivo);
+- quante **domande per socio** al giorno o al mese (vuoto = senza limite).
+
+Chiavi e regole arrivano ai soci con la **password AI**, cifrate, alla prossima **Pubblica**. Il conteggio delle domande
+avviene sul telefono di ogni socio (l'app non ha un server); il socio vede in *Impostazioni* quante domande gli restano.
+Il programmatore non ha limiti. Per i servizi a pagamento conviene impostare un limite di spesa mensile sul sito del servizio.
+
 ### Grafici, tabelle e resoconti
 
 **Da dove arrivano i dati**

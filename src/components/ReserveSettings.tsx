@@ -5,27 +5,59 @@ import {
   listChatModels, pickModel, PROVIDER_ORDER, PROVIDERS, type ChatModel, type ProviderId, type ProviderKey
 } from '../shared/providers.ts';
 
+const PAGAMENTO = PROVIDER_ORDER.filter((id) => PROVIDERS[id].pagamento);
+const GRATUITI = PROVIDER_ORDER.filter((id) => !PROVIDERS[id].pagamento);
+
 /**
- * AI gratuite di riserva: se Gemini non risponde (limite raggiunto, sovraccarico, lentezza)
- * l'app passa da sola, nell'ordine, a quelle configurate qui.
+ * Servizi AI a pagamento (Claude, ChatGPT): predisposti, si attivano inserendo la chiave.
+ * Quali usare, in che ordine e con quanti limiti per i soci si decide in «Regole dei servizi AI».
+ */
+export function PaidAiSettings({ online }: { online: boolean }) {
+  const s = useSettings();
+  const attive = PAGAMENTO.filter((id) => s.riserve[id]?.apiKey?.trim());
+  return (
+    <div class="card">
+      <h3>Claude e ChatGPT (a pagamento)</h3>
+      <p class="muted small">
+        Più affidabili dei piani gratuiti: niente limiti giornalieri né blocchi nelle ore di punta, e leggono anche foto e PDF.
+        Si pagano a consumo con credito prepagato, separato dagli abbonamenti Claude Pro o ChatGPT Plus. Con i modelli
+        economici (scelti in automatico) una domanda costa circa un millesimo di dollaro.
+      </p>
+      <p class="small">
+        {attive.length
+          ? <>Configurati: <strong>{attive.map((id) => PROVIDERS[id].nome).join(', ')}</strong>.</>
+          : 'Nessuno configurato: si attivano inserendo la chiave.'}
+      </p>
+      {PAGAMENTO.map((id) => <ProviderBox key={id} id={id} value={s.riserve[id]} online={online} />)}
+      <p class="muted small">
+        <strong>Consiglio:</strong> sul sito del servizio imposta un limite di spesa mensile. La chiave arriva ai soci con la
+        password AI (cifrata), quindi chi la conosce potrebbe usarla anche fuori dall'app.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * AI gratuite di riserva: se il servizio precedente non risponde (limite raggiunto, sovraccarico, lentezza)
+ * l'app passa da sola alla prossima.
  */
 export function ReserveSettings({ online }: { online: boolean }) {
   const s = useSettings();
-  const attive = PROVIDER_ORDER.filter((id) => s.riserve[id]?.apiKey?.trim());
+  const attive = GRATUITI.filter((id) => s.riserve[id]?.apiKey?.trim());
   return (
     <div class="card">
       <h3>AI gratuite di riserva</h3>
       <p class="muted small">
-        Se Gemini non risponde (limite gratuito raggiunto, sovraccarico, troppa lentezza) l'app passa da sola alla
-        prossima AI configurata qui, nell'ordine: <strong>Gemini → Groq → Mistral → OpenRouter</strong>. Sotto ogni
-        risposta è indicata l'AI che l'ha scritta. Tutte hanno un piano gratuito: servono solo una registrazione e una chiave.
+        Se un servizio non risponde (limite gratuito raggiunto, sovraccarico, troppa lentezza) l'app passa da sola al
+        successivo, nell'ordine scelto in <strong>Regole dei servizi AI</strong>. Sotto ogni risposta è indicata l'AI che
+        l'ha scritta. Hanno un piano gratuito: servono solo una registrazione e una chiave.
       </p>
       <p class="small">
         {attive.length
           ? <>Riserve attive: <strong>{attive.map((id) => PROVIDERS[id].nome).join(', ')}</strong>.</>
           : 'Nessuna riserva attiva.'}
       </p>
-      {PROVIDER_ORDER.map((id) => <ProviderBox key={id} id={id} value={s.riserve[id]} online={online} />)}
+      {GRATUITI.map((id) => <ProviderBox key={id} id={id} value={s.riserve[id]} online={online} />)}
       <p class="muted small">
         Le chiavi restano solo su questo dispositivo (non nel codice, non su GitHub, non nei backup). Se condividi
         l'AI con i soci, vengono condivise anche queste, cifrate con la password AI.
@@ -67,7 +99,9 @@ function ProviderBox({ id, value, online }: { id: ProviderId; value?: ProviderKe
       const text = pickModel(id, list, false);
       const foto = pickModel(id, list, true);
       if (!text) {
-        setTest({ ok: false, msg: `La chiave funziona, ma ${p.nome} non offre ora modelli gratuiti utilizzabili.` });
+        setTest({ ok: false, msg: `La chiave funziona, ma ${p.nome} non offre ora modelli${p.pagamento ? '' : ' gratuiti'} utilizzabili.` });
+      } else if (p.pagamento) {
+        setTest({ ok: true, msg: `Funziona. Modello scelto in automatico: ${text} (legge foto e PDF). Se la risposta dice «credito esaurito», ricarica sul sito del servizio.` });
       } else {
         setTest({
           ok: true,
@@ -89,12 +123,13 @@ function ProviderBox({ id, value, online }: { id: ProviderId; value?: ProviderKe
     <details class="reserve" open={configured}>
       <summary>
         <strong>{p.nome}</strong>
-        {configured ? <span class="chip chip-demo">attiva</span> : <span class="chip">non configurata</span>}
+        {configured ? <span class="chip chip-demo">{p.pagamento ? 'configurato' : 'attiva'}</span> : <span class="chip">{p.pagamento ? 'predisposto' : 'non configurata'}</span>}
       </summary>
       <p class="small">{p.piano.charAt(0).toUpperCase() + p.piano.slice(1)}. <span class="muted">Riservatezza: {p.privacy}.</span></p>
       <p class="small">
-        Crea la chiave gratuita su <a href={p.keyUrl} target="_blank" rel="noopener noreferrer">{p.keyUrl.replace(/^https:\/\//, '')}</a>,
-        copiala e incollala qui.
+        {p.pagamento
+          ? <>Su <a href={p.keyUrl} target="_blank" rel="noopener noreferrer">{p.keyUrl.replace(/^https:\/\//, '')}</a> crea un account, carica del credito e crea una chiave API; copiala e incollala qui.</>
+          : <>Crea la chiave gratuita su <a href={p.keyUrl} target="_blank" rel="noopener noreferrer">{p.keyUrl.replace(/^https:\/\//, '')}</a>, copiala e incollala qui.</>}
       </p>
       <label class="field">
         <span class="small">Chiave {p.nome}</span>
@@ -120,7 +155,7 @@ function ProviderBox({ id, value, online }: { id: ProviderId; value?: ProviderKe
             value={value?.model ?? ''}
             onChange={(e) => store({ model: (e.target as HTMLSelectElement).value })}
           >
-            <option value="">Automatico (consigliato)</option>
+            <option value="">{p.pagamento ? 'Automatico: il più economico (consigliato)' : 'Automatico (consigliato)'}</option>
             {value?.model && !chatModels.some((m) => m.id === value.model) && <option value={value.model}>{value.model}</option>}
             {chatModels.map((m) => <option key={m.id} value={m.id}>{m.id}{m.vision ? ' · legge le foto' : ''}</option>)}
           </select>

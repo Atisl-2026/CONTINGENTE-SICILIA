@@ -1,5 +1,6 @@
 import { DEFAULT_MODEL } from '../shared/gemini.ts';
 import type { Reserves } from '../shared/providers.ts';
+import type { PoliticaAi } from '../shared/politica.ts';
 import { getMeta, setMeta } from './db';
 import { useLiveQuery } from './live';
 
@@ -16,8 +17,10 @@ export interface Settings {
   categorie: string[];
   /** Documento della Normativa in cui cercare (id della scheda; vuoto = tutti i documenti). */
   documento: string;
-  /** AI gratuite di riserva (Groq, Mistral, OpenRouter): chiavi salvate solo su questo dispositivo. */
+  /** Altri servizi AI (Claude, ChatGPT, Groq, Mistral, OpenRouter): chiavi salvate solo su questo dispositivo. */
   riserve: Reserves;
+  /** Regole del programmatore: servizi attivi, ordine, limiti di domande per socio. */
+  politica?: PoliticaAi;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

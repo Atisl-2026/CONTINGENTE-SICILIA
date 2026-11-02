@@ -3,7 +3,7 @@ import { db, putRecords } from '../lib/db';
 import { ensureCategory } from '../lib/categories';
 import { CategoryPicker } from '../components/CategoryPicker';
 import { navigate } from '../lib/route';
-import { ACCEPT, ACCEPT_AI, extractUpload, type UploadResult } from '../lib/upload';
+import { ACCEPT, ACCEPT_AI, extractUpload, puoLeggereFile, type UploadResult } from '../lib/upload';
 import { useSettings } from '../lib/settings';
 import { useOnline } from '../lib/online';
 import { ensureUniqueIds } from '../shared/normalize.ts';
@@ -28,7 +28,7 @@ export function UploadPage() {
   const input = useRef<HTMLInputElement>(null);
   const settings = useSettings();
   const online = useOnline();
-  const aiPossibile = online && !!settings.apiKey.trim();
+  const aiPossibile = online && puoLeggereFile(settings);
   const [conAi, setConAi] = useState(true);
   const usaAi = aiPossibile && conAi;
 
@@ -113,8 +113,8 @@ export function UploadPage() {
             <br />
             <span class="muted small">
               {aiPossibile
-                ? 'Gemini guarda le pagine e ricava i numeri di grafici e tabelle. Puoi caricare anche foto o schermate di grafici.'
-                : online ? 'Serve la chiave Gemini nelle Impostazioni.' : 'Serve la connessione.'}
+                ? "L'AI (Gemini, Claude o ChatGPT, secondo l'ordine scelto) guarda le pagine e ricava i numeri di grafici e tabelle. Puoi caricare anche foto o schermate di grafici."
+                : online ? 'Serve la chiave di Gemini, Claude o ChatGPT nelle Impostazioni.' : 'Serve la connessione.'}
             </span>
           </span>
           <input type="checkbox" role="switch" checked={usaAi} disabled={!aiPossibile} onChange={(e) => setConAi((e.target as HTMLInputElement).checked)} />

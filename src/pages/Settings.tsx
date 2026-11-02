@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'preact/hooks';
 import { InstallCard } from '../components/InstallCard';
 import { GeminiSettings } from '../components/GeminiSettings';
-import { ReserveSettings } from '../components/ReserveSettings';
+import { PaidAiSettings, ReserveSettings } from '../components/ReserveSettings';
+import { AiQuota, AiRules } from '../components/AiRules';
 import { AdminSecurity } from '../components/AdminSecurity';
 import { getAiEnvelope, lockAi, logout, RUOLO_LABEL, unlockAi, type Accesso } from '../lib/access';
 import { requestPersistence } from '../lib/db';
@@ -61,7 +62,9 @@ export function SettingsPage({ online, access }: Props) {
 
       {access.ruolo === 'socio' && <AiUnlock access={access} />}
       {access.ruolo === 'admin' && <GeminiSettings online={online} />}
+      {access.ruolo === 'admin' && <PaidAiSettings online={online} />}
       {access.ruolo === 'admin' && <ReserveSettings online={online} />}
+      {access.ruolo === 'admin' && <AiRules />}
       {access.ruolo === 'admin' && <AdminSecurity access={access} online={online} />}
 
       <div class="card">
@@ -148,6 +151,7 @@ function AiUnlock({ access }: { access: Accesso }) {
       {access.aiKey ? (
         <>
           <p class="notice notice-ok">Risposte AI attive su questo telefono.</p>
+          <AiQuota />
           <p class="muted small">
             Le domande e i brani trovati vengono inviati a Google Gemini: non scrivere dati personali o riservati.
           </p>
@@ -155,7 +159,7 @@ function AiUnlock({ access }: { access: Accesso }) {
         </>
       ) : (
         <form onSubmit={onUnlock}>
-          <p class="muted small">Se il programmatore ti ha dato la password AI, inseriscila per avere le risposte scritte da Gemini.</p>
+          <p class="muted small">Se il programmatore ti ha dato la password AI, inseriscila per avere le risposte scritte dall'AI.</p>
           <label class="field">
             <span class="small">Password AI</span>
             <input type="password" autocomplete="off" value={password} onInput={(e) => setPassword((e.target as HTMLInputElement).value)} />

@@ -234,6 +234,7 @@ export async function analyzePhotos(
       request: buildDescribeRequest(images.map(smallOf), note),
       thinking: 'minimal',
       leggero: true, // basta un modello leggero: la quota del modello principale resta per l'analisi
+      conta: false, // per i limiti dei soci l'analisi di una foto è una domanda sola
       timeoutMs: 20000,
       signal,
       skip,
@@ -251,7 +252,7 @@ export async function analyzePhotos(
 
   onStep('analisi');
   const answer = await runAi(s, {
-    request: buildAnalysisRequest(full, note, description, toBlocks(results)),
+    request: buildAnalysisRequest(full, note, description, toBlocks(results, note)),
     thinking: 'low',
     timeoutMs: 45000, // tempo massimo di silenzio, non della risposta intera
     signal,

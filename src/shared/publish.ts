@@ -4,6 +4,7 @@
 //   soci.json  → { formato, versione, generato, cifrato: Envelope }
 //                il contenuto cifrato è SociPayload: tutte le schede + (facoltativa) chiave Gemini
 //                cifrata a sua volta con la "password AI".
+import type { PoliticaAi } from './politica.ts';
 import type { Reserves } from './providers.ts';
 import { decryptJson, encryptJson, type DerivedKey, type Envelope } from './crypto.ts';
 import { pickSchema } from './normalize.ts';
@@ -23,8 +24,10 @@ export interface SociFile {
 export interface AiShare {
   apiKey: string;
   model: string;
-  /** AI gratuite di riserva (le versioni precedenti dell'app ignorano il campo) */
+  /** altri servizi AI (le versioni precedenti dell'app ignorano il campo) */
   riserve?: Reserves;
+  /** regole del programmatore: servizi attivi, ordine, limiti di domande per socio */
+  politica?: PoliticaAi;
 }
 
 export interface SociPayload {

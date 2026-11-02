@@ -1,12 +1,15 @@
-// AI gratuite di riserva (Groq, Mistral, OpenRouter): tutte usano il formato "chat completions"
-// compatibile OpenAI. L'app costruisce le richieste nel formato Gemini (GeminiRequest) e qui
+// Altri servizi AI oltre a Gemini: Claude (Anthropic) e ChatGPT (OpenAI) a pagamento, Groq, Mistral e
+// OpenRouter gratuiti. Tutti tranne Claude usano il formato "chat completions" di OpenAI; Claude ha il suo
+// (shared/claude.ts). L'app costruisce le richieste nel formato Gemini (GeminiRequest) e qui
 // le converte; le risposte tornano come GeminiAnswer, così il resto dell'app non cambia.
 // Funzioni pure + fetch: testate in tests/providers.test.ts.
 import {
   GeminiError, parseQuota, quotaMessage, schemaInstruction, type GeminiAnswer, type GeminiRequest
 } from './gemini.ts';
 
-export type ProviderId = 'groq' | 'mistral' | 'openrouter';
+import { callClaude, claudeHeaders } from './claude.ts';
+
+export type ProviderId = 'claude' | 'openai' | 'groq' | 'mistral' | 'openrouter';
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -20,9 +23,35 @@ export interface ProviderInfo {
   piano: string;
   /** cosa succede ai dati sul piano gratuito */
   privacy: string;
+  /** a consumo (serve credito): niente limiti gratuiti */
+  pagamento?: boolean;
+  /** legge i PDF (grafici dei documenti caricati) */
+  pdf?: boolean;
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
+  claude: {
+    id: 'claude',
+    nome: 'Claude',
+    base: 'https://api.anthropic.com/v1',
+    keyUrl: 'https://platform.claude.com',
+    keyHint: 'sk-ant-…',
+    piano: 'a consumo con credito prepagato (Anthropic): con il modello economico Haiku circa 0,1 centesimi a domanda; legge foto e PDF',
+    privacy: 'i dati inviati tramite API non vengono usati per addestrare i modelli (condizioni commerciali di Anthropic)',
+    pagamento: true,
+    pdf: true
+  },
+  openai: {
+    id: 'openai',
+    nome: 'ChatGPT',
+    base: 'https://api.openai.com/v1',
+    keyUrl: 'https://platform.openai.com/api-keys',
+    keyHint: 'sk-…',
+    piano: 'a consumo con credito prepagato (OpenAI, separato dall\'abbonamento ChatGPT Plus): con i modelli economici circa 0,1 centesimi a domanda; legge foto e PDF',
+    privacy: 'i dati inviati tramite API non vengono usati per addestrare i modelli (condizioni API di OpenAI)',
+    pagamento: true,
+    pdf: true
+  },
   groq: {
     id: 'groq',
     nome: 'Groq',
@@ -52,8 +81,8 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   }
 };
 
-/** Ordine in cui si provano le riserve: prima la più veloce. */
-export const PROVIDER_ORDER: ProviderId[] = ['groq', 'mistral', 'openrouter'];
+/** Ordine predefinito (dopo Gemini): prima i servizi a pagamento, poi le riserve gratuite, la più veloce prima. */
+export const PROVIDER_ORDER: ProviderId[] = ['claude', 'openai', 'groq', 'mistral', 'openrouter'];
 
 export interface ProviderKey {
   apiKey: string;
@@ -69,18 +98,24 @@ export function configuredReserves(r: Reserves | undefined): ProviderId[] {
 
 // ============================================================ richiesta
 
-type ChatContent = string | ({ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } })[];
+type ChatPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'file'; file: { filename: string; file_data: string } };
+type ChatContent = string | ChatPart[];
 
 export interface ChatBody {
   model: string;
   messages: { role: 'system' | 'user' | 'assistant'; content: ChatContent }[];
   temperature?: number;
   max_tokens?: number;
+  /** OpenAI: i modelli recenti vogliono questo al posto di max_tokens */
+  max_completion_tokens?: number;
   stream?: boolean;
 }
 
-/** GeminiRequest → corpo "chat completions". */
-export function toChatBody(req: GeminiRequest, model: string, stream: boolean): ChatBody {
+/** GeminiRequest → corpo "chat completions" (OpenAI: anche PDF; parametri dei modelli recenti). */
+export function toChatBody(req: GeminiRequest, model: string, stream: boolean, p?: ProviderId): ChatBody {
   const gc = (req.generationConfig ?? {}) as { temperature?: number; maxOutputTokens?: number; responseSchema?: unknown; responseMimeType?: string };
   const system = [
     ...(req.systemInstruction?.parts ?? []).map((p) => p.text),
@@ -88,16 +123,23 @@ export function toChatBody(req: GeminiRequest, model: string, stream: boolean): 
   ].filter(Boolean).join('\n\n');
   const messages: ChatBody['messages'] = system ? [{ role: 'system', content: system }] : [];
   for (const c of req.contents) {
-    const parts: Exclude<ChatContent, string> = c.parts.map((p) =>
-      'inlineData' in p
-        ? { type: 'image_url' as const, image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } }
-        : { type: 'text' as const, text: p.text }
-    );
+    const parts: ChatPart[] = c.parts.flatMap((x): ChatPart[] => {
+      if (!('inlineData' in x)) return [{ type: 'text', text: x.text }];
+      const url = `data:${x.inlineData.mimeType};base64,${x.inlineData.data}`;
+      if (x.inlineData.mimeType === 'application/pdf') {
+        return p === 'openai' ? [{ type: 'file', file: { filename: 'documento.pdf', file_data: url } }] : [];
+      }
+      return [{ type: 'image_url', image_url: { url } }];
+    });
     const onlyText = parts.every((p) => p.type === 'text');
     messages.push({
       role: c.role === 'model' ? 'assistant' : 'user',
       content: onlyText ? parts.map((p) => (p as { text: string }).text).join('\n\n') : parts
     });
+  }
+  if (p === 'openai') {
+    // modelli recenti (GPT-5 e successivi, serie «o»): temperatura fissa e max_completion_tokens
+    return { model, messages, max_completion_tokens: Math.max(gc.maxOutputTokens ?? 8192, 8192), ...(stream ? { stream: true } : {}) };
   }
   return {
     model,
@@ -106,6 +148,11 @@ export function toChatBody(req: GeminiRequest, model: string, stream: boolean): 
     max_tokens: gc.maxOutputTokens ?? 4096,
     ...(stream ? { stream: true } : {})
   };
+}
+
+/** La richiesta contiene un PDF (solo Gemini, Claude e ChatGPT li leggono). */
+export function hasPdf(req: GeminiRequest): boolean {
+  return req.contents.some((c) => c.parts.some((x) => 'inlineData' in x && x.inlineData.mimeType === 'application/pdf'));
 }
 
 export function hasImages(req: GeminiRequest): boolean {
@@ -179,6 +226,7 @@ export interface ChatOptions {
 }
 
 function headers(p: ProviderId, apiKey: string): Record<string, string> {
+  if (p === 'claude') return claudeHeaders(apiKey);
   const h: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey.trim()}` };
   if (p === 'openrouter') h['X-Title'] = 'Contingente Sicilia';
   return h;
@@ -187,6 +235,7 @@ function headers(p: ProviderId, apiKey: string): Record<string, string> {
 /** Richiesta "chat completions" (normale o in tempo reale) con tempi massimi e annullamento. */
 export async function callChat(p: ProviderId, req: GeminiRequest, opts: ChatOptions): Promise<GeminiAnswer> {
   if (!opts.apiKey.trim()) throw new GeminiError('chiave', `${PROVIDERS[p].nome}: manca la chiave.`);
+  if (p === 'claude') return callClaude(req, opts);
   const stream = !!opts.onText && typeof ReadableStream !== 'undefined' && typeof TextDecoder !== 'undefined';
   const doFetch = opts.fetchImpl ?? fetch;
   const ctrl = new AbortController();
@@ -213,7 +262,7 @@ export async function callChat(p: ProviderId, req: GeminiRequest, opts: ChatOpti
       res = await doFetch(`${PROVIDERS[p].base}/chat/completions`, {
         method: 'POST',
         headers: headers(p, opts.apiKey),
-        body: JSON.stringify(toChatBody(req, opts.model, stream)),
+        body: JSON.stringify(toChatBody(req, opts.model, stream, p)),
         signal: ctrl.signal
       });
     } catch {
@@ -299,14 +348,19 @@ interface RawChatModel {
   deprecation?: string | null;
 }
 
-const VISION_NAME = /llama-4|vision|scout|maverick|pixtral|qwen.*vl|gemma-3|llava|gemini/i;
+const VISION_NAME = /llama-4|vision|scout|maverick|pixtral|qwen.*vl|gemma-3|llava|gemini|claude|gpt-(4o|4\.1|5|6)/i;
 const NOT_CHAT: Record<ProviderId, RegExp> = {
+  claude: /^claude-(instant|1|2)/i,
+  openai: /embed|whisper|tts|dall-e|audio|realtime|transcribe|moderation|image|search|codex|instruct|babbage|davinci|computer-use|sora|^ft:|^o1-mini|-pro\b/i,
   groq: /whisper|tts|guard|playai|orpheus|compound|distil|embed|allam/i,
   mistral: /embed|ocr|moderation|codestral|devstral|voxtral|magistral|saba|ministral-3b/i,
   openrouter: /thinking|-r1\b|r1-|:extended|embed|audio|image-gen|router/i
 };
 // preferenze (dal migliore): modelli grandi e capaci in italiano
 const PREFER: Record<ProviderId, RegExp[]> = {
+  // a pagamento: prima i modelli economici, già ottimi per queste domande
+  claude: [/haiku-5-5/i, /haiku-5/i, /haiku/i, /sonnet-5-5/i, /sonnet/i],
+  openai: [/^gpt-6[^ ]*luna/i, /^gpt-5[^ ]*luna/i, /^gpt-5[.\d]*-mini/i, /^gpt-4\.1-mini/i, /^gpt-4o-mini/i, /^gpt-6/i, /^gpt-5/i],
   groq: [/llama-4-maverick/i, /llama-4-scout/i, /gpt-oss-120b/i, /kimi-k2/i, /llama-3\.3-70b/i, /qwen/i, /llama/i],
   mistral: [/^mistral-medium-latest$/i, /^mistral-large-latest$/i, /^mistral-small-latest$/i, /^pixtral-large-latest$/i, /medium/i, /large/i, /small/i],
   openrouter: [/google\/gemini/i, /meta-llama\/llama-4-maverick/i, /qwen.*vl.*(72|32)b/i, /google\/gemma-3-27b/i, /mistral-small/i, /meta-llama\/llama-4/i, /deepseek-(chat|v3)/i, /llama-3\.3-70b/i, /qwen/i]
@@ -329,6 +383,11 @@ export async function listChatModels(p: ProviderId, apiKey: string, fetchImpl: t
     throw classifyChatError(p, res.status, body);
   }
   const json = (await res.json()) as { data?: RawChatModel[] };
+  if (PROVIDERS[p].pagamento) {
+    // a pagamento: tutti i modelli dell'elenco si possono usare (i prezzi si vedono sul sito del servizio)
+    return (json.data ?? []).filter((m) => m.id && !NOT_CHAT[p].test(m.id) && (p !== 'openai' || /^(gpt-|o\d|chatgpt)/i.test(m.id)))
+      .map((m) => ({ id: m.id, vision: VISION_NAME.test(m.id), free: true }));
+  }
   return (json.data ?? [])
     .filter((m) => m.id && m.active !== false && !m.deprecation && m.capabilities?.completion_chat !== false && !NOT_CHAT[p].test(m.id))
     .map((m) => ({
