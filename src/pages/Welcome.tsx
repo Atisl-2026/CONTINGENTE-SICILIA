@@ -39,7 +39,7 @@ export function WelcomePage({ onEnter }: { onEnter: () => void }) {
   return (
     <div class="welcome">
       <div class="welcome-hero">
-        <img src={asset(BRAND.logoCompleto)} alt={`Logo del ${BRAND.nome} sulla carta della Sicilia`} width="720" height="723" />
+        <img src={asset(BRAND.logoCompleto)} alt={`Carta della Sicilia con i capoluoghi e il logo del ${BRAND.nome}`} width="1200" height="900" />
       </div>
 
       <h1 class="welcome-title">

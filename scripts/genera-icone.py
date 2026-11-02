@@ -1,22 +1,23 @@
 # Genera icone PWA, icone Android e immagini del marchio dal logo originale (grafica/logo-originale.png).
 # Uso: python3 scripts/genera-icone.py grafica/logo-originale.png public   (richiede Pillow)
-import sys
+import os, sys
 from PIL import Image, ImageDraw, ImageFilter
 SRC = sys.argv[1]; OUT = sys.argv[2]
 im = Image.open(SRC).convert('RGB')
-emb = im.crop((318, 318, 638, 638)).resize((768, 768), Image.LANCZOS)  # marchio al centro
+MARCHIO = Image.open(os.path.join(os.path.dirname(SRC), 'marchio.png')).convert('RGBA')  # marchio scontornato
+
 def emblem_disc(size):
-    """Marchio su disco chiaro: la mappa sfuma verso il bianco ai bordi."""
-    e = emb.resize((size, size), Image.LANCZOS)
-    white = Image.new('RGB', (size, size), (246, 249, 253))
-    m = Image.new('L', (size, size), 0)
-    ImageDraw.Draw(m).ellipse((size*0.05, size*0.05, size*0.95, size*0.95), fill=255)
-    m = m.filter(ImageFilter.GaussianBlur(size*0.035))
-    disc = Image.composite(e, white, m)
-    a = Image.new('L', (size, size), 0)
-    ImageDraw.Draw(a).ellipse((0, 0, size-1, size-1), fill=255)
-    out = Image.new('RGBA', (size, size)); out.paste(disc, (0, 0), a)
+    """Marchio su disco bianco."""
+    out = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    disc = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(disc).ellipse((0, 0, size - 1, size - 1), fill=(248, 250, 254, 255))
+    out.alpha_composite(disc)
+    inner = int(size * 0.70)
+    m = MARCHIO.copy()
+    m.thumbnail((inner, inner), Image.LANCZOS)
+    out.alpha_composite(m, ((size - m.width) // 2, (size - m.height) // 2))
     return out
+
 def bg(size, radius):
     g = Image.new('RGB', (size, size))
     d = ImageDraw.Draw(g)
@@ -47,8 +48,6 @@ for name, s, d, r in targets:
     if name.startswith('icons/apple'): img = img.convert('RGB')
     img.save(f'{OUT}/{name}', optimize=True)
 emblem_disc(256).save(f'{OUT}/brand/logo.png', optimize=True)
-# immagine completa per la pagina di benvenuto
-im.resize((720, int(720*im.height/im.width)), Image.LANCZOS).save(f'{OUT}/brand/sicilia.jpg', quality=84, optimize=True, progressive=True)
 # ---- Android (APK)
 import os
 RES = os.path.join(os.path.dirname(OUT), 'android/app/src/main/res')

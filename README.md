@@ -636,8 +636,9 @@ tests/           test di ricerca, Gemini, accessi e cifratura, database, import,
 ### Personalizzare nome, logo e colori
 
 - **Nome e contatti**: `src/branding.ts` (nome, sottotitolo, email e telefono di assistenza) e `vite.config.ts` (nome nel manifest).
-- **Logo**: sostituisci `grafica/logo-originale.png` ed esegui `npm run icons` (Python con Pillow): rigenera icone dell'app,
-  icone Android, `public/brand/logo.png` e l'immagine della pagina di benvenuto `public/brand/sicilia.jpg`.
+- **Logo**: il marchio scontornato è `grafica/marchio.png` (ricavato da `grafica/logo-originale.png`); `npm run icons` (Python con Pillow) rigenera icone dell'app,
+  icone Android e `public/brand/logo.png`. La carta della pagina di benvenuto (`public/brand/sicilia.jpg`) è disegnata da dati
+  geografici reali (Natural Earth) con i nove capoluoghi: sorgente modificabile in `grafica/mappa.svg`.
 - **Nome, coordinatori, argomenti, contatti**: `src/branding.ts`.
 - **Colori**: variabili all'inizio di `src/styles.css` (tema unico blu notte); colori dei grafici in `src/components/Chart.tsx`.
 
