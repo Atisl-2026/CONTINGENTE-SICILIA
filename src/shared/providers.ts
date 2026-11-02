@@ -151,8 +151,14 @@ export function classifyChatError(p: ProviderId, status: number, body: unknown):
   if (status === 404 || /invalid model|model.*(not found|does not exist|decommissioned|not available|invalid)/i.test(msg)) {
     return new GeminiError('modello', `${nome}: modello non disponibile.`, status);
   }
-  if (status === 413 || /too large|payload|image.*(size|large)/i.test(msg)) {
-    return new GeminiError('sconosciuto', `${nome}: foto troppo grandi per questo servizio.`, status);
+  if (status === 413 || /too large|payload|image.*(size|large)|tokens per minute|context length|maximum context/i.test(msg)) {
+    const foto = /image/i.test(msg);
+    return new GeminiError('sconosciuto', foto
+      ? `${nome}: foto troppo grandi per questo servizio.`
+      : `${nome}: domanda con troppi dati per il limite gratuito di questo servizio.`, status);
+  }
+  if (/prohibited|moderation|flagged|content.?policy|safety/i.test(msg)) {
+    return new GeminiError('bloccata', `${nome}: il modello gratuito ha rifiutato la richiesta con i suoi filtri sui contenuti.`, status);
   }
   if (status === 403) return new GeminiError('chiave', `${nome}: accesso negato${msg ? ` (${msg})` : ''}.`, status);
   if (status >= 500) return new GeminiError('sovraccarico', `${nome}: servizio momentaneamente non disponibile.`, status);

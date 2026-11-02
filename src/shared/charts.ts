@@ -411,7 +411,9 @@ export function graficoToText(g: Grafico, maxRighe = MAX_CATEGORIE): string {
   return `${head}\n${rows.join('\n')}${g.nota ? `\nNota: ${g.nota}` : ''}`;
 }
 
-/** Grafico → JSON compatto per l'AI (stesso formato che l'AI deve restituire). */
+const compatto = (v: number | null) => (v == null ? null : parseFloat(v.toPrecision(Math.abs(v) >= 1000 ? 10 : 4)));
+
+/** Grafico → JSON compatto per l'AI (stesso formato che l'AI deve restituire, numeri senza decimali inutili). */
 export function graficoPerAi(g: Grafico): string {
   return JSON.stringify({
     titolo: g.titolo,
@@ -419,8 +421,26 @@ export function graficoPerAi(g: Grafico): string {
     ...(g.unita ? { unita: g.unita } : {}),
     ...(g.posizione ? { posizione: g.posizione } : {}),
     categorie: g.categorie,
-    serie: g.serie
+    serie: g.serie.map((s) => ({ nome: s.nome, valori: s.valori.map(compatto) }))
   });
+}
+
+const PAROLE_VUOTE = new Set(('che chi per con dei del della delle degli dello dal dalla dai nel nella nelle negli nei sul sulla sui una uno gli le lo la il non come sono quali quale quanti quante quanto ' +
+  'fammi dammi mostrami voglio vorrei resoconto riepilogo report sintesi dati dato grafico grafici tabella tabelle anche tutti tutte totale').split(' '));
+const radice = (w: string) => w.slice(0, Math.max(4, Math.min(6, w.length - 1)));
+const parole = (s: string) =>
+  s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z0-9%]+/).filter((w) => w.length >= 3 && !PAROLE_VUOTE.has(w));
+
+/**
+ * Quanto un grafico c'entra con la domanda: parole della domanda (stessa radice: «provincia» ~ «province»)
+ * presenti in titolo, voci, serie e posizione. 0 = non c'entra.
+ */
+export function pertinenza(g: Grafico, domanda: string): number {
+  const q = [...new Set(parole(domanda).map(radice))];
+  if (!q.length) return 0;
+  const testo = new Set(parole([g.titolo, g.posizione ?? '', ...g.categorie, ...g.serie.map((s) => s.nome)].join(' ')).map(radice));
+  const titolo = new Set(parole(g.titolo).map(radice));
+  return q.reduce((n, w) => n + (testo.has(w) ? 1 : 0) + (titolo.has(w) ? 0.5 : 0), 0);
 }
 
 /** Grafici di una scheda presenti in un brano di testo (intestazione «Grafico «titolo»» o «Tabella «titolo»»). */

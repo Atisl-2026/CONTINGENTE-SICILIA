@@ -6,7 +6,7 @@ import type { LocalResult } from './search';
 import { articlesOf, passagePage } from './articles';
 import type { Settings } from './settings';
 import { withModelFallback } from './model';
-import { graficiNelBrano, graficoPerAi } from '../shared/charts.ts';
+import { graficiNelBrano, graficoPerAi, pertinenza } from '../shared/charts.ts';
 
 export type AiState =
   | { status: 'idle' }
@@ -16,24 +16,33 @@ export type AiState =
 
 export { articlesOf } from './articles';
 
-/** Limite ai dati strutturati inviati all'AI (caratteri JSON, in totale). */
-export const MAX_DATI_AI = 40000;
+/**
+ * Limite ai dati strutturati inviati all'AI (caratteri JSON, in totale): restano dentro ai limiti
+ * gratuiti dei servizi di riserva e Gemini risponde in fretta. Passano prima le tabelle più pertinenti.
+ */
+export const MAX_DATI_AI = 12000;
 
-export function toBlocks(results: LocalResult[]): ContextBlock[] {
+export function toBlocks(results: LocalResult[], domanda = ''): ContextBlock[] {
   const conDati = new Set<string>();
   let budget = MAX_DATI_AI;
   return results.map((r) => {
-    // tabelle e grafici del documento: una volta sola, nel primo brano del documento;
-    // prima quelli presenti nel brano trovato
+    // tabelle e grafici del documento: una volta sola, nel primo brano del documento.
+    // Solo quelli che c'entrano con la domanda o che compaiono nel brano trovato, i più pertinenti per primi.
     let grafici: string[] | undefined;
     if (r.record.grafici?.length && !conDati.has(r.record.id)) {
       conDati.add(r.record.id);
-      const nel = graficiNelBrano(r.record.grafici, r.chunk.testo);
-      const ordinati = [...nel, ...r.record.grafici.filter((g) => !nel.includes(g))];
+      const nel = new Set(results.filter((x) => x.record.id === r.record.id).flatMap((x) => graficiNelBrano(r.record.grafici, x.chunk.testo)));
+      const ordinati = r.record.grafici
+        .map((g) => ({ g, p: pertinenza(g, domanda) + (nel.has(g) ? 1 : 0) }))
+        .filter((x) => x.p > 0)
+        .sort((a, b) => b.p - a.p);
+      // solo le più vicine alla domanda (almeno metà del punteggio migliore), al massimo 10
+      const soglia = (ordinati[0]?.p ?? 0) / 2;
+      ordinati.splice(0, ordinati.length, ...ordinati.filter((x) => x.p >= soglia).slice(0, 10));
       grafici = [];
-      for (const g of ordinati) {
+      for (const { g } of ordinati) {
         const j = graficoPerAi(g);
-        if (j.length > budget) break;
+        if (j.length > budget) continue;
         budget -= j.length;
         grafici.push(j);
       }
@@ -71,8 +80,8 @@ export async function askDatabase(
     // in tempo reale: il testo compare mentre l'AI lo scrive; il tempo massimo vale per il silenzio.
     // Se Gemini non risponde si passa da soli alle AI di riserva configurate.
     const answer = await runAi(s, {
-      request: buildDbRequest(question, toBlocks(results)),
-      timeoutMs: 40000,
+      request: buildDbRequest(question, toBlocks(results, question)),
+      timeoutMs: 60000,
       signal,
       thinking: 'low',
       onText: onPartial,

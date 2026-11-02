@@ -101,3 +101,32 @@ describe('testo e lettura AI', () => {
     expect(r.grafici[0]).toMatchObject({ posizione: 'pag. 3', serie: [{ valori: [1, null] }] });
   });
 });
+
+describe('dati inviati all\'AI', () => {
+  it('pertinenza: contano le parole della domanda (anche al plurale), non le parole vuote', async () => {
+    const { pertinenza } = await import('../src/shared/charts.ts');
+    const g = (titolo: string, categorie: string[]) => ({ titolo, tipo: 'barre' as const, categorie, serie: [{ nome: 'Pratiche', valori: categorie.map(() => 1) }] });
+    const ln = g('Lavoratori in nero per provincia', ['Agrigento', 'Catania']);
+    const sosp = g('Sospensioni per tipologia', ['Lavoro Nero', 'DVR']);
+    const pers = g('Pratiche per ispettore', ['mario.rossi']);
+    const q = 'fammi un resoconto dei lavoratori in nero nelle province';
+    expect(pertinenza(ln, q)).toBeGreaterThan(pertinenza(sosp, q));
+    expect(pertinenza(pers, q)).toBe(0);
+    expect(pertinenza(ln, 'fammi un resoconto')).toBe(0);
+  });
+  it('JSON compatto: niente decimali inutili', async () => {
+    const { graficoPerAi } = await import('../src/shared/charts.ts');
+    const j = graficoPerAi({ titolo: 't', tipo: 'barre', categorie: ['a', 'b'], serie: [{ nome: 's', valori: [3500.9830999999685, 0.08716797605686495] }] });
+    expect(j).toContain('[3500.9831,0.08717]');
+  });
+});
+
+describe('errori dei servizi di riserva', () => {
+  it('richiesta troppo grande senza foto e filtri sui contenuti: messaggi chiari', async () => {
+    const { classifyChatError } = await import('../src/shared/providers.ts');
+    expect(classifyChatError('groq', 413, { error: { message: 'Request too large for model: tokens per minute (TPM) limit 6000' } }).message)
+      .toBe('Groq: domanda con troppi dati per il limite gratuito di questo servizio.');
+    expect(classifyChatError('openrouter', 403, { error: { message: 'PROHIBITED_CONTENT' } }).message)
+      .toMatch(/filtri sui contenuti/);
+  });
+});
