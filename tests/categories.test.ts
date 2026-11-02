@@ -14,13 +14,13 @@ describe('gestione delle categorie', () => {
     await logout();
     const { putRecords, setMeta } = await import('../src/lib/db');
     await setMeta('eliminateDaPubblicare', []);
-    await putRecords([rec('a', 'Procedure'), rec('b', 'procedure'), rec('c', 'FAQ'), rec('d', 'Vecchia categoria', 'locale')]);
+    await putRecords([rec('a', 'Procedure'), rec('b', 'procedure'), rec('c', 'Report'), rec('d', 'Vecchia categoria', 'locale')]);
   });
 
   it('elenco standard di partenza + categorie usate dalle schede, con i conteggi', async () => {
     const { categoriesWithCounts } = await import('../src/lib/categories');
     const cats = await categoriesWithCounts();
-    expect(cats.map((c) => c.nome)).toEqual(['Normativa', 'FAQ', 'Formazione', 'Generale', 'Procedure', 'Schede tecniche', 'Vecchia categoria']);
+    expect(cats.map((c) => c.nome)).toEqual(['Statistiche', 'Report', 'Relazioni', 'Normativa', 'Procedure', 'Generale', 'Vecchia categoria']);
     expect(cats.find((c) => c.nome === 'Procedure')!.schede).toBe(2); // "procedure" minuscolo conta insieme
     expect(cats.at(-1)).toMatchObject({ inElenco: false, schede: 1 });
   });
@@ -29,7 +29,7 @@ describe('gestione delle categorie', () => {
     const { addCategory, getCategoryList } = await import('../src/lib/categories');
     const { getPending } = await import('../src/lib/publisher');
     expect(await addCategory('  Cantieri   edili ')).toBe('Cantieri edili');
-    await expect(addCategory('faq')).rejects.toThrow(/esiste già/);
+    await expect(addCategory('report')).rejects.toThrow(/esiste già/);
     await expect(addCategory('   ')).rejects.toThrow(/nome/);
     expect((await getCategoryList()).at(-1)).toBe('Cantieri edili');
     expect(await getPending()).toMatchObject({ categorie: true, nuove: 1, totale: 2 }); // la scheda «d» è nuova
@@ -40,15 +40,15 @@ describe('gestione delle categorie', () => {
     const { db } = await import('../src/lib/db');
     const { updateSettings, getSettings } = await import('../src/lib/settings');
     const { getPending } = await import('../src/lib/publisher');
-    await updateSettings({ categorie: ['procedure', 'faq'] });
+    await updateSettings({ categorie: ['procedure', 'report'] });
     expect(await renameCategory('Procedure', 'Procedure operative')).toBe(2);
     expect((await db.records.get('a'))).toMatchObject({ categoria: 'Procedure operative', modificato: true });
     expect((await db.records.get('b'))!.categoria).toBe('Procedure operative');
     expect(await getCategoryList()).toContain('Procedure operative');
     expect(await getCategoryList()).not.toContain('Procedure');
-    expect((await getSettings()).categorie.sort()).toEqual(['faq', 'procedure operative']);
+    expect((await getSettings()).categorie.sort()).toEqual(['procedure operative', 'report']);
     expect(await getPending()).toMatchObject({ modificate: 2, categorie: true });
-    await expect(renameCategory('FAQ', 'procedure OPERATIVE')).rejects.toThrow(/Esiste già/);
+    await expect(renameCategory('Report', 'procedure OPERATIVE')).rejects.toThrow(/Esiste già/);
   });
 
   it('eliminazione: se ha schede vanno spostate; la ricerca le trova nella nuova categoria', async () => {
@@ -56,21 +56,21 @@ describe('gestione delle categorie', () => {
     const { db } = await import('../src/lib/db');
     const { retrieve } = await import('../src/shared/search.ts');
     const { getIndex } = await import('../src/lib/search');
-    await expect(deleteCategory('FAQ')).rejects.toThrow(/scegli dove spostarle/);
-    expect(await deleteCategory('FAQ', 'Generale')).toBe(1);
+    await expect(deleteCategory('Report')).rejects.toThrow(/scegli dove spostarle/);
+    expect(await deleteCategory('Report', 'Generale')).toBe(1);
     expect((await db.records.get('c'))!.categoria).toBe('Generale');
-    expect(await getCategoryList()).not.toContain('FAQ');
-    expect(await deleteCategory('Formazione')).toBe(0); // vuota
+    expect(await getCategoryList()).not.toContain('Report');
+    expect(await deleteCategory('Relazioni')).toBe(0); // vuota
     const hits = retrieve(await getIndex(), 'Testo c', { categorie: ['Generale'] });
     expect(hits.map((h) => h.recordId)).toContain('c');
   });
 
   it('ordine', async () => {
     const { moveCategory, getCategoryList } = await import('../src/lib/categories');
-    await moveCategory('FAQ', -1);
-    expect((await getCategoryList()).slice(0, 2)).toEqual(['FAQ', 'Normativa']);
-    await moveCategory('FAQ', -1); // già in cima: nessun effetto
-    expect((await getCategoryList())[0]).toBe('FAQ');
+    await moveCategory('Report', -1);
+    expect((await getCategoryList()).slice(0, 2)).toEqual(['Report', 'Statistiche']);
+    await moveCategory('Report', -1); // già in cima: nessun effetto
+    expect((await getCategoryList())[0]).toBe('Report');
   });
 
   it('elenco ricevuto con i contenuti: non sovrascrive modifiche non pubblicate', async () => {
