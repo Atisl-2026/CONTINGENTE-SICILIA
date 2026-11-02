@@ -1,0 +1,25 @@
+Verifies
+Verified using v1 scheme (JAR signing): true
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v3.2 scheme (APK Signature Scheme v3.2): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+V3.0 Signer: certificate DN: CN=Contingente Sicilia, O=ATISL, C=IT
+V3.0 Signer: certificate SHA-256 digest: 4eb2818461926287526e3800d5cc427f804fdfb30d23ab0011c3b52b3ececfe8
+V3.0 Signer: certificate SHA-1 digest: 14881b9dadc144f343d35d53641aa5904bc79a5c
+V3.0 Signer: certificate MD5 digest: effd1d997fa4ca1adcfe32e32c7988eb
+V3.0 Signer: key algorithm: RSA
+V3.0 Signer: key size (bits): 3072
+V3.0 Signer: public key SHA-256 digest: 2b184b0e99c64653b48a3991bfead647139b60dbc695c950c509397441835518
+V3.0 Signer: public key SHA-1 digest: 02fea759199dca08bbea6c286c5a59f8a263c7d9
+V3.0 Signer: public key MD5 digest: e8b4331365f489ab0eaeb47a93de5b2e
+WARNING: META-INF/com/android/build/gradle/app-metadata.properties not protected by signature. Unauthorized modifications to this JAR entry will not be detected. Delete or move the entry outside of META-INF/.
+WARNING: META-INF/version-control-info.textproto not protected by signature. Unauthorized modifications to this JAR entry will not be detected. Delete or move the entry outside of META-INF/.
+WARNING: META-INF/androidx.browser_browser.version not protected by signature. Unauthorized modifications to this JAR entry will not be detected. Delete or move the entry outside of META-INF/.
+WARNING: META-INF/androidx.core_core.version not protected by signature. Unauthorized modifications to this JAR entry will not be detected. Delete or move the entry outside of META-INF/.
+WARNING: META-INF/androidx.interpolator_interpolator.version not protected by signature. Unauthorized modifications to this JAR entry will not be detected. Delete or move the entry outside of META-INF/.
+WARNING: META-INF/androidx.lifecycle_lifecycle-runtime.version not protected by signature. Unauthorized modifications to this JAR entry will not be detected. Delete or move the entry outside of META-INF/.
+WARNING: META-INF/androidx.versionedparcelable_versionedparcelable.version not protected by signature. Unauthorized modifications to this JAR entry will not be detected. Delete or move the entry outside of META-INF/.
