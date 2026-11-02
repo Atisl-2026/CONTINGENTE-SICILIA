@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.atisl2026.contingentesicilia",
+      "sha256_cert_fingerprints": [
+        "DA-AGGIORNARE: impronta in impronta-sha256.txt sul ramo apk dopo la prima compilazione"
+      ]
+    }
+  }
+]

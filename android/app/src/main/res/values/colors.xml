@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- blu notte, come l'app web -->
+    <color name="colorPrimary">#0B1A33</color>
+    <color name="navigationColor">#0B1A33</color>
+    <color name="backgroundColor">#0B1A33</color>
+    <color name="iconBackground">#0E2147</color>
+</resources>
