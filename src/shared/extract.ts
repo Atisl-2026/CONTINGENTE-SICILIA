@@ -287,6 +287,12 @@ function colIndex(ref: string): number {
   return n - 1;
 }
 
+/** Numeri calcolati da Excel senza decimali inutili: 3500.9830999999685 → 3500.98, 13.6666666667 → 13.6667. */
+export function numeroLeggibile(n: number): number {
+  if (Number.isInteger(n)) return n;
+  return Math.abs(n) >= 1000 ? Math.round(n * 100) / 100 : parseFloat(n.toPrecision(6));
+}
+
 /** Colonna "AB" → 27 (da 1). */
 export function colNumber(letters: string): number {
   let n = 0;
@@ -369,9 +375,9 @@ export function readXlsx(bytes: Uint8Array): Sheet[] {
           const f = formats[style];
           if (!Number.isFinite(num)) out = v;
           else if (f === 'data') out = excelSerialToDate(num, date1904);
-          else if (f === 'percento') out = `${parseFloat((num * 100).toPrecision(12))}%`;
-          else if (f === 'euro') out = `€ ${parseFloat(num.toPrecision(15))}`;
-          else out = String(parseFloat(num.toPrecision(15)));
+          else if (f === 'percento') out = `${Math.round(num * 10000) / 100}%`;
+          else if (f === 'euro') out = `€ ${Math.round(num * 100) / 100}`;
+          else out = String(numeroLeggibile(num));
         }
         vals[idx] = out.trim();
         if (out.trim()) celle.set(`${ref?.[1] ?? ''}${rowNum}`, out.trim());

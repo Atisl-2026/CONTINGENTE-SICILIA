@@ -7,6 +7,34 @@ import { articlesOf, passagePage } from './articles';
 import type { Settings } from './settings';
 import { withModelFallback } from './model';
 import { graficiNelBrano, graficoPerAi, pertinenza } from '../shared/charts.ts';
+import { intentoDomanda } from '../shared/intento.ts';
+import type { Grafico } from '../shared/types.ts';
+import { db } from './db';
+
+/**
+ * Riepiloghi e totali: i documenti con i «numeri chiave» (statistiche) entrano sempre tra i brani,
+ * anche se la ricerca per parole non li ha trovati. Per un riepilogo generale restano pochi altri brani,
+ * così l'AI non si perde nei dettagli (singoli comuni, singole persone).
+ */
+export async function conSintesi(domanda: string, results: LocalResult[]): Promise<LocalResult[]> {
+  const int = intentoDomanda(domanda);
+  if (!int.generale && !int.totali) return results;
+  const stat = (await db.records.toArray())
+    .filter((r) => numeriChiave(r.grafici).length)
+    .sort((a, b) =>
+      Number(results.some((x) => x.record.id === b.id)) - Number(results.some((x) => x.record.id === a.id))
+      || (b.data_aggiornamento || '').localeCompare(a.data_aggiornamento || '')
+      || b.salvato_il - a.salvato_il)
+    .slice(0, 3);
+  const aggiunti: LocalResult[] = [];
+  for (const r of stat) {
+    const chunk = await db.chunks.get(`${r.id}#0`);
+    if (!chunk || results.some((x) => x.chunkId === chunk.id)) continue;
+    aggiunti.push({ chunkId: chunk.id, recordId: r.id, n: 0, score: 0, terms: [], chunk, record: r });
+  }
+  const altri = int.generale ? results.slice(0, 3) : results;
+  return [...aggiunti, ...altri];
+}
 
 export type AiState =
   | { status: 'idle' }
@@ -22,6 +50,25 @@ export { articlesOf } from './articles';
  */
 export const MAX_DATI_AI = 12000;
 
+/** Tabelle «numeri chiave» di un documento: i totali e i dati principali di ogni foglio. */
+export const numeriChiave = (grafici: Grafico[] | undefined) => (grafici ?? []).filter((g) => g.tipo === 'kpi');
+
+/** Tabelle da mandare all'AI per un documento, le più utili per prime. */
+export function scegliTabelle(grafici: Grafico[], domanda: string, nelBrano: Set<Grafico> = new Set()): Grafico[] {
+  const int = intentoDomanda(domanda);
+  const ordinati = grafici
+    .map((g) => ({ g, p: pertinenza(g, domanda) + (nelBrano.has(g) ? 1 : 0) }))
+    .filter((x) => x.p > 0)
+    .sort((a, b) => b.p - a.p);
+  // solo le più vicine alla domanda (almeno metà del punteggio migliore), al massimo 10
+  const soglia = (ordinati[0]?.p ?? 0) / 2;
+  const pertinenti = ordinati.filter((x) => x.p >= soglia).slice(0, 10).map((x) => x.g);
+  if (!int.generale && !int.totali) return pertinenti;
+  // riepilogo o totali: prima i numeri chiave di tutti i fogli (contengono i totali), poi il resto pertinente
+  const kpi = numeriChiave(grafici);
+  return [...kpi, ...pertinenti.filter((g) => !kpi.includes(g))];
+}
+
 export function toBlocks(results: LocalResult[], domanda = ''): ContextBlock[] {
   const conDati = new Set<string>();
   let budget = MAX_DATI_AI;
@@ -32,15 +79,8 @@ export function toBlocks(results: LocalResult[], domanda = ''): ContextBlock[] {
     if (r.record.grafici?.length && !conDati.has(r.record.id)) {
       conDati.add(r.record.id);
       const nel = new Set(results.filter((x) => x.record.id === r.record.id).flatMap((x) => graficiNelBrano(r.record.grafici, x.chunk.testo)));
-      const ordinati = r.record.grafici
-        .map((g) => ({ g, p: pertinenza(g, domanda) + (nel.has(g) ? 1 : 0) }))
-        .filter((x) => x.p > 0)
-        .sort((a, b) => b.p - a.p);
-      // solo le più vicine alla domanda (almeno metà del punteggio migliore), al massimo 10
-      const soglia = (ordinati[0]?.p ?? 0) / 2;
-      ordinati.splice(0, ordinati.length, ...ordinati.filter((x) => x.p >= soglia).slice(0, 10));
       grafici = [];
-      for (const { g } of ordinati) {
+      for (const g of scegliTabelle(r.record.grafici, domanda, nel)) {
         const j = graficoPerAi(g);
         if (j.length > budget) continue;
         budget -= j.length;
@@ -81,6 +121,7 @@ export async function askDatabase(
     // Se Gemini non risponde si passa da soli alle AI di riserva configurate.
     const answer = await runAi(s, {
       request: buildDbRequest(question, toBlocks(results, question)),
+      prefer: s.aiPreferito || undefined,
       timeoutMs: 60000,
       signal,
       thinking: 'low',

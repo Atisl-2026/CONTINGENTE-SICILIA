@@ -6,11 +6,18 @@ import { Markdown } from './Markdown';
 import { ResultCard } from './ResultCard';
 import { CitedDocs } from './CitedDocs';
 import { resolveArticle } from '../lib/articles';
+import { ChartCard } from './Chart';
+import { numeriChiave } from '../lib/ai';
+import { intentoDomanda } from '../shared/intento.ts';
+import { pertinenza } from '../shared/charts.ts';
+import { recordHref } from '../lib/route';
 
 /** Perché la risposta AI non è disponibile (o null se lo è). */
-export type AiUnavailable = 'offline' | 'nokey' | 'nonabilitato' | null;
+export type AiUnavailable = 'offline' | 'nokey' | 'nonabilitato' | 'spenta' | null;
 
 interface DbProps {
+  /** domanda fatta: per i riepiloghi e i totali si mostrano i numeri chiave */
+  domanda?: string;
   results: LocalResult[];
   ai: AiState;
   unavailable: AiUnavailable;
@@ -19,7 +26,18 @@ interface DbProps {
 }
 
 /** Sezione "Dal database": risposta AI basata sui blocchi + blocchi trovati. Mai mescolata con il web. */
-export function DbSection({ results, ai, unavailable, recordCount, onRetry }: DbProps) {
+export function DbSection({ domanda = '', results, ai, unavailable, recordCount, onRetry }: DbProps) {
+  const int = intentoDomanda(domanda);
+  // riepilogo o totali senza risposta AI: i numeri chiave dei documenti statistici, subito visibili
+  // i più vicini alla domanda per primi («ispezioni totali» → il riquadro con le pratiche distinte)
+  const sintesi = int.generale || int.totali
+    ? [...new Map(results.map((r) => [r.record.id, r.record])).values()]
+      .flatMap((rec) => numeriChiave(rec.grafici).map((g, i) => ({ g, rec, p: pertinenza(g, domanda), i })))
+      .sort((a, b) => b.p - a.p || a.i - b.i)
+    : [];
+  const sintesiCard = ({ g, rec }: (typeof sintesi)[number]) => (
+    <ChartCard key={`${rec.id}-${g.titolo}`} g={g} fonte={<a href={recordHref(rec.id)}>{rec.titolo}</a>} />
+  );
   const [showBlocks, setShowBlocks] = useState(false);
   const ids = new Set(results.map((r) => r.record.id));
   const titles = new Map(results.map((r) => [r.record.id, r.record.titolo]));
@@ -47,6 +65,9 @@ export function DbSection({ results, ai, unavailable, recordCount, onRetry }: Db
 
       {results.length > 0 && unavailable === 'offline' && (
         <p class="ai-hint" role="note">Risposta AI disponibile quando sei online.</p>
+      )}
+      {results.length > 0 && unavailable === 'spenta' && (
+        <p class="ai-hint" role="note">Risposta AI spenta: qui sotto i risultati dell'archivio.</p>
       )}
       {results.length > 0 && unavailable === 'nokey' && (
         <p class="ai-hint" role="note">
@@ -103,6 +124,19 @@ export function DbSection({ results, ai, unavailable, recordCount, onRetry }: Db
             Risposta generata da {ai.answer.servizio ?? 'Gemini'}{ai.answer.servizio && ai.answer.servizio !== 'Gemini' && ai.answer.modello ? ` (${ai.answer.modello})` : ''} sui contenuti del database: verifica sempre le fonti.
           </p>
         </article>
+      )}
+
+      {!answered && ai.status !== 'loading' && sintesi.length > 0 && (
+        <div class="sintesi">
+          <h4 class="sintesi-title">Numeri chiave</h4>
+          {sintesi.slice(0, 2).map(sintesiCard)}
+          {sintesi.length > 2 && (
+            <details class="sintesi-altri">
+              <summary>Altri numeri chiave ({sintesi.length - 2})</summary>
+              {sintesi.slice(2).map(sintesiCard)}
+            </details>
+          )}
+        </div>
       )}
 
       {results.length > 0 && answered && (

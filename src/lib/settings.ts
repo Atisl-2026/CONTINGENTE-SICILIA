@@ -1,6 +1,6 @@
 import { DEFAULT_MODEL } from '../shared/gemini.ts';
 import type { Reserves } from '../shared/providers.ts';
-import type { PoliticaAi } from '../shared/politica.ts';
+import type { Fornitore, PoliticaAi } from '../shared/politica.ts';
 import { getMeta, setMeta } from './db';
 import { useLiveQuery } from './live';
 
@@ -21,6 +21,10 @@ export interface Settings {
   riserve: Reserves;
   /** Regole del programmatore: servizi attivi, ordine, limiti di domande per socio. */
   politica?: PoliticaAi;
+  /** Interruttore «Risposta con l'intelligenza artificiale» della schermata Chiedi. */
+  usaAi?: boolean;
+  /** Servizio AI da provare per primo ('' = automatico, secondo le regole). */
+  aiPreferito?: Fornitore | '';
 }
 
 export const DEFAULT_SETTINGS: Settings = {

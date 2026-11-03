@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { DbSection, WebSection, type AiUnavailable } from '../components/Answer';
 import { IconSend } from '../components/Icons';
-import { askDatabase, askWeb, type AiState } from '../lib/ai';
-import { hasAi } from '../lib/router';
+import { askDatabase, askWeb, conSintesi, type AiState } from '../lib/ai';
+import { availableAi, hasAi, nomeFornitore } from '../lib/router';
 import { aiAllowed, getAccess, type Accesso } from '../lib/access';
 import { db } from '../lib/db';
 import { addToHistory, clearHistory, removeFromHistory, useHistory } from '../lib/history';
@@ -111,7 +111,7 @@ function AskMain({ online, access }: Props) {
     const isOnline = navigator.onLine;
     const why: AiUnavailable = !aiAllowed(await getAccess())
       ? 'nonabilitato'
-      : !isOnline ? 'offline' : !hasAi(s) ? 'nokey' : null;
+      : s.usaAi === false ? 'spenta' : !isOnline ? 'offline' : !hasAi(s) ? 'nokey' : null;
     setUnavailable(why);
 
     const jobs: Promise<void>[] = [];
@@ -155,7 +155,9 @@ function AskMain({ online, access }: Props) {
     try {
       const { categorie, documento } = await searchScope();
       // i passaggi più pertinenti (per l'AI) e tutti i passaggi trovati (per documento)
-      const [res, tutti] = await Promise.all([searchLocal(question, { categorie, documento }), allMatches(question, categorie, documento)]);
+      const [trovati, tutti] = await Promise.all([searchLocal(question, { categorie, documento }), allMatches(question, categorie, documento)]);
+      // riepiloghi e totali: entrano sempre i documenti con i numeri chiave
+      const res = await conSintesi(question, trovati);
       setAsked(question);
       setResults(res);
       setAll(tutti);
@@ -224,7 +226,9 @@ function AskMain({ online, access }: Props) {
         </a>
       )}
 
-      {canAi && <div class="card card-tight">
+      {canAi && <AiSwitch online={online} />}
+
+      {canAi && settings.usaAi !== false && <div class="card card-tight">
         <label class="switch">
           <span>
             Verifica anche sul web
@@ -256,6 +260,7 @@ function AskMain({ online, access }: Props) {
             <button type="button" class="link-btn" onClick={reset}>Nuova domanda</button>
           </div>
           <DbSection
+            domanda={asked}
             results={results}
             ai={dbAi}
             unavailable={unavailable}
@@ -289,5 +294,47 @@ function AskMain({ online, access }: Props) {
         <p class="muted small center">Le domande che fai restano solo su questo dispositivo.</p>
       )}
     </section>
+  );
+}
+
+/** Interruttore «Risposta con l'AI» e scelta del servizio da provare per primo. */
+function AiSwitch({ online }: { online: boolean }) {
+  const settings = useSettings();
+  const on = settings.usaAi !== false;
+  const servizi = availableAi(settings);
+  const preferito = settings.aiPreferito && servizi.includes(settings.aiPreferito) ? settings.aiPreferito : '';
+  return (
+    <div class="card card-tight ai-toggle">
+      <label class="switch">
+        <span>
+          Risposta con l'intelligenza artificiale
+          <br />
+          <span class="muted small">
+            {!on
+              ? "Spenta: vedi solo i risultati dell'archivio, con tabelle e grafici"
+              : !servizi.length
+                ? 'Nessun servizio AI disponibile (Impostazioni)'
+                : !online
+                  ? 'Disponibile quando sei online'
+                  : `Risponde ${preferito ? nomeFornitore(preferito) : servizi.map(nomeFornitore).join(' → ')}`}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          checked={on}
+          onChange={(e) => updateSettings({ usaAi: (e.target as HTMLInputElement).checked })}
+        />
+      </label>
+      {on && servizi.length > 1 && (
+        <label class="field ai-service">
+          <span class="small">Servizio da usare per primo</span>
+          <select value={preferito} onChange={(e) => updateSettings({ aiPreferito: (e.target as HTMLSelectElement).value as typeof preferito })}>
+            <option value="">Automatico (ordine delle regole)</option>
+            {servizi.map((f) => <option key={f} value={f}>{nomeFornitore(f)}</option>)}
+          </select>
+        </label>
+      )}
+    </div>
   );
 }

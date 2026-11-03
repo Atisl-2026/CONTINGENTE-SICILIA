@@ -896,3 +896,7 @@ html { background-color: var(--bg); }
 .ai-quota { margin: 10px 0; }
 .ai-quota ul { margin: 4px 0; padding-left: 1.2em; }
 .reserve select, .field select { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(4, 14, 32, 0.6); color: var(--text); }
+.ai-toggle .ai-service { margin: 4px 0 6px; }
+.sintesi-altri > summary { cursor: pointer; padding: 10px 0; color: var(--primary); font-weight: 600; }
+.sintesi { margin: 6px 0 14px; }
+.sintesi-title { margin: 4px 0 8px; font-size: 0.95rem; color: var(--accent); }
