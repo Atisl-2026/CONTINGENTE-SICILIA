@@ -10,6 +10,7 @@ import { ChartCard } from './Chart';
 import { numeriChiave } from '../lib/ai';
 import { intentoDomanda } from '../shared/intento.ts';
 import { pertinenza } from '../shared/charts.ts';
+import { RiepilogoScritto } from './Riepilogo';
 import { recordHref } from '../lib/route';
 
 /** Perché la risposta AI non è disponibile (o null se lo è). */
@@ -128,14 +129,11 @@ export function DbSection({ domanda = '', results, ai, unavailable, recordCount,
 
       {!answered && ai.status !== 'loading' && sintesi.length > 0 && (
         <div class="sintesi">
-          <h4 class="sintesi-title">Numeri chiave</h4>
-          {sintesi.slice(0, 2).map(sintesiCard)}
-          {sintesi.length > 2 && (
-            <details class="sintesi-altri">
-              <summary>Altri numeri chiave ({sintesi.length - 2})</summary>
-              {sintesi.slice(2).map(sintesiCard)}
-            </details>
-          )}
+          <RiepilogoScritto domanda={domanda} records={[...new Map(sintesi.map((x) => [x.rec.id, x.rec])).values()]} />
+          <details class="sintesi-altri">
+            <summary>Vedi i riquadri dei numeri chiave ({sintesi.length})</summary>
+            {sintesi.map(sintesiCard)}
+          </details>
         </div>
       )}
 

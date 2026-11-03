@@ -900,3 +900,20 @@ html { background-color: var(--bg); }
 .sintesi-altri > summary { cursor: pointer; padding: 10px 0; color: var(--primary); font-weight: 600; }
 .sintesi { margin: 6px 0 14px; }
 .sintesi-title { margin: 4px 0 8px; font-size: 0.95rem; color: var(--accent); }
+
+/* Riepilogo scritto senza AI */
+.riepilogo { border-left: 3px solid var(--accent); }
+.riepilogo-evidenza { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--primary-soft); border: 1px solid var(--border-strong); }
+.riepilogo-evidenza p { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.riepilogo-evidenza p + p { margin-top: 6px; }
+.ev-label { font-weight: 600; }
+.ev-val { font-size: 1.5rem; font-variant-numeric: tabular-nums; text-shadow: 0 0 16px var(--glow); }
+.riepilogo-doc h4 { margin: 0 0 8px; font-size: 1rem; line-height: 1.35; }
+.riepilogo-aree { margin: 0; }
+.riepilogo-aree > div { padding: 8px 0; border-top: 1px solid rgba(118, 160, 235, 0.14); }
+.riepilogo-aree dt { font-weight: 700; color: var(--accent); font-size: 0.9rem; margin-bottom: 2px; }
+.riepilogo-aree dd { margin: 0; font-size: 0.92rem; line-height: 1.55; }
+.riep-voce { display: inline; }
+.riep-voce + .riep-voce::before { content: " · "; color: var(--text-muted); }
+.riep-voce strong { font-variant-numeric: tabular-nums; }
+.riepilogo-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
