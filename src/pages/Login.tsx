@@ -22,6 +22,7 @@ export function LoginPage({ online }: { online: boolean }) {
   const [showAdmin, setShowAdmin] = useState(false);
   const [token, setToken] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  const [aiPassword, setAiPassword] = useState('');
   const [repo, setRepo] = useState(defaultRepo());
   const [reset, setReset] = useState(false);
   const [newPw, setNewPw] = useState('');
@@ -89,7 +90,7 @@ export function LoginPage({ online }: { online: boolean }) {
       ) : (
         <form
           class="card login-card"
-          onSubmit={(e) => { e.preventDefault(); run('admin', () => loginAdmin(token, adminPassword, repo)); }}
+          onSubmit={(e) => { e.preventDefault(); run('admin', () => loginAdmin(token, adminPassword, repo, aiPassword)); }}
         >
           <h2>Accesso programmatore</h2>
           <label class="field">
@@ -124,6 +125,16 @@ export function LoginPage({ online }: { online: boolean }) {
               onInput={(e) => setAdminPassword((e.target as HTMLInputElement).value)}
             />
             <span class="muted small">Se i contenuti non sono ancora pubblicati, questa diventa la password dei soci.</span>
+          </label>
+          <label class="field">
+            <span class="small">Password AI <span class="muted">(facoltativa)</span></span>
+            <input
+              type="password"
+              autocomplete="off"
+              value={aiPassword}
+              onInput={(e) => setAiPassword((e.target as HTMLInputElement).value)}
+            />
+            <span class="muted small">Recupera chiavi e regole dei servizi AI (Gemini, Claude, ChatGPT…) salvate con l'ultima pubblicazione.</span>
           </label>
           <label class="field">
             <span class="small">Repository</span>

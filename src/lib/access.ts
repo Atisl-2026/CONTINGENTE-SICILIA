@@ -1,4 +1,4 @@
-import { decryptJson, deriveKey, deriveKeyFor, keyMatches, type DerivedKey, type Envelope } from '../shared/crypto.ts';
+import { decryptJson, deriveKey, deriveKeyFor, keyMatches, WrongPasswordError, type DerivedKey, type Envelope } from '../shared/crypto.ts';
 import { normalizeRepo, repoFromPagesUrl, verifyToken } from '../shared/github.ts';
 import { parseDbJson } from '../shared/normalize.ts';
 import { DEMO_FILE, isSociFile, openSoci, SOCI_FILE, type AiShare, type SociFile } from '../shared/publish.ts';
@@ -159,7 +159,13 @@ export function defaultRepo(): string {
  * Accesso programmatore: codice GitHub + password soci.
  * Se i contenuti dei soci non sono ancora stati pubblicati, la password inserita diventa quella dei soci.
  */
-export async function loginAdmin(token: string, password: string, repoInput: string): Promise<{ primoAccesso: boolean }> {
+export async function loginAdmin(
+  token: string,
+  password: string,
+  repoInput: string,
+  /** facoltativa: recupera le chiavi AI e le regole salvate (cifrate) con l'ultima pubblicazione */
+  aiPassword = ''
+): Promise<{ primoAccesso: boolean; chiaviRecuperate?: boolean }> {
   const repo = normalizeRepo(repoInput);
   if (!repo) throw new Error('Indica il repository nel formato proprietario/nome.');
   if (!token.trim()) throw new Error('Inserisci il codice di accesso GitHub.');
@@ -175,11 +181,14 @@ export async function loginAdmin(token: string, password: string, repoInput: str
   if (file) {
     const sociKey = await deriveKeyFor(password, file.cifrato);
     const payload = await openSoci(file, sociKey);
+    // password AI controllata prima di entrare: un errore di battitura non fa perdere nulla
+    const recupero = aiPassword.trim() ? await apriChiavi(aiPassword, payload.ai) : null;
     await replaceRecords(payload.records, file.versione);
     await setAiEnvelope(payload.ai);
     await receiveCategories(payload.categorie);
-    await setAccess({ ruolo: 'admin', sociKey, github: { token: token.trim(), repo: fullName, branch } });
-    return { primoAccesso: false };
+    await setAccess({ ruolo: 'admin', sociKey, ...(recupero ? { aiKey: recupero.aiKey } : {}), github: { token: token.trim(), repo: fullName, branch } });
+    if (recupero) await applicaChiavi(recupero.share);
+    return { primoAccesso: false, chiaviRecuperate: !!recupero };
   }
 
   if (password.length < 8) throw new Error('Prima pubblicazione: scegli una password soci di almeno 8 caratteri.');
@@ -207,6 +216,36 @@ export async function unlockAi(password: string) {
   const aiKey = await deriveKeyFor(password, env);
   const share = await decryptJson<AiShare>(env, aiKey); // WrongPasswordError se sbagliata
   await updateSettings({ apiKey: share.apiKey, model: share.model, riserve: share.riserve ?? {}, politica: normalizePolitica(share.politica) });
+  await setAccess({ ...a, aiKey });
+}
+
+/** Apre la copia cifrata delle chiavi AI (pubblicata con la password AI). */
+async function apriChiavi(password: string, env: Envelope | null | undefined): Promise<{ aiKey: DerivedKey; share: AiShare }> {
+  if (!env) {
+    throw new Error("Sul sito non c'è una copia delle chiavi AI: si crea scegliendo una password AI in Impostazioni → Risposte AI per i soci. Lascia vuoto il campo «Password AI» per entrare.");
+  }
+  try {
+    const aiKey = await deriveKeyFor(password, env);
+    return { aiKey, share: await decryptJson<AiShare>(env, aiKey) };
+  } catch (e) {
+    if (e instanceof WrongPasswordError) throw new Error('Password AI non corretta. Lascia il campo vuoto per entrare senza recuperare le chiavi.');
+    throw e;
+  }
+}
+
+async function applicaChiavi(share: AiShare) {
+  await updateSettings({ apiKey: share.apiKey, model: share.model, riserve: share.riserve ?? {}, politica: normalizePolitica(share.politica) });
+}
+
+/**
+ * Programmatore: dopo «Esci» o su un altro telefono, recupera chiavi AI e regole dalla copia
+ * cifrata con la password AI (la stessa che arriva ai soci).
+ */
+export async function recuperaChiaviAdmin(password: string) {
+  const a = await getAccess();
+  if (a?.ruolo !== 'admin') throw new Error('Solo per il programmatore.');
+  const { aiKey, share } = await apriChiavi(password, await getAiEnvelope());
+  await applicaChiavi(share);
   await setAccess({ ...a, aiKey });
 }
 

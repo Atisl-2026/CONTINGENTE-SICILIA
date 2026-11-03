@@ -212,6 +212,35 @@ describe('pubblicazione dal telefono (GitHub simulato)', () => {
     expect((await applyRemote(res.versione, res.records, res.ai)).avvisoAi).toMatch(/password AI è cambiata/);
   });
 
+  it('programmatore: dopo «Esci» recupera chiavi e regole con la password AI', async () => {
+    const { loginAdmin, logout, recuperaChiaviAdmin, getAccess } = await import('../src/lib/access');
+    const { publish } = await import('../src/lib/publisher');
+    const { updateSettings, getSettings } = await import('../src/lib/settings');
+    await loginAdmin('github_pat_OK', PW, 'Atisl-2026/SICUREZZA');
+    const politica = { ordine: ['claude' as const, 'gemini' as const], regole: { claude: { attivo: true, limite: 10, periodo: 'giorno' as const } } };
+    await updateSettings({ apiKey: 'AIzaMIA', riserve: { claude: { apiKey: 'sk-ant-MIA' } }, politica });
+    await publish({ aiPassword: 'password-ai-1' });
+    await logout();
+    expect((await getSettings()).apiKey).toBe('');
+
+    // password AI sbagliata all'accesso: non si entra e non si perde nulla
+    await expect(loginAdmin('github_pat_OK', PW, 'Atisl-2026/SICUREZZA', 'sbagliata')).rejects.toThrow(/Password AI non corretta/);
+    expect(await getAccess()).toBeNull();
+
+    // giusta: chiavi e regole tornano, e le prossime pubblicazioni le aggiornano anche per i soci
+    expect(await loginAdmin('github_pat_OK', PW, 'Atisl-2026/SICUREZZA', 'password-ai-1')).toMatchObject({ chiaviRecuperate: true });
+    expect(await getSettings()).toMatchObject({ apiKey: 'AIzaMIA', riserve: { claude: { apiKey: 'sk-ant-MIA' } }, politica });
+    expect((await getAccess())!.aiKey).toBeTruthy();
+
+    // oppure, già dentro, dalle Impostazioni
+    await logout();
+    await loginAdmin('github_pat_OK', PW, 'Atisl-2026/SICUREZZA');
+    expect((await getSettings()).apiKey).toBe('');
+    await expect(recuperaChiaviAdmin('sbagliata')).rejects.toThrow(/Password AI non corretta/);
+    await recuperaChiaviAdmin('password-ai-1');
+    expect((await getSettings()).riserve).toEqual({ claude: { apiKey: 'sk-ant-MIA' } });
+  });
+
   it('conflitto: se su GitHub c\'è una versione più recente non sovrascrive nulla', async () => {
     const { loginAdmin } = await import('../src/lib/access');
     const { publish, PublishConflictError } = await import('../src/lib/publisher');

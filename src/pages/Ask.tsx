@@ -313,7 +313,7 @@ function AiSwitch({ online }: { online: boolean }) {
             {!on
               ? "Spenta: vedi solo i risultati dell'archivio, con tabelle e grafici"
               : !servizi.length
-                ? 'Nessun servizio AI disponibile (Impostazioni)'
+                ? 'Nessun servizio AI su questo telefono: inserisci o recupera le chiavi in Impostazioni'
                 : !online
                   ? 'Disponibile quando sei online'
                   : `Risponde ${preferito ? nomeFornitore(preferito) : servizi.map(nomeFornitore).join(' → ')}`}

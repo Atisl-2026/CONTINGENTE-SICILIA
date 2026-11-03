@@ -3,6 +3,7 @@ import { InstallCard } from '../components/InstallCard';
 import { GeminiSettings } from '../components/GeminiSettings';
 import { PaidAiSettings, ReserveSettings } from '../components/ReserveSettings';
 import { AiQuota, AiRules } from '../components/AiRules';
+import { RecuperaChiavi } from '../components/RecuperaChiavi';
 import { AdminSecurity } from '../components/AdminSecurity';
 import { getAiEnvelope, lockAi, logout, RUOLO_LABEL, unlockAi, type Accesso } from '../lib/access';
 import { requestPersistence } from '../lib/db';
@@ -37,7 +38,7 @@ export function SettingsPage({ online, access }: Props) {
 
   const onLogout = async () => {
     const msg = access.ruolo === 'admin'
-      ? 'Uscire? Dal telefono verranno cancellati contenuti, codice GitHub e chiave Gemini.\nLe schede non ancora pubblicate andranno perse.'
+      ? "Uscire? Dal telefono verranno cancellati contenuti, codice GitHub e chiavi dei servizi AI.\nLe schede non ancora pubblicate andranno perse.\n\nLe chiavi AI si recuperano al prossimo accesso con la password AI (se l'AI è condivisa)."
       : 'Uscire? I contenuti verranno cancellati da questo telefono: per rientrare servirà di nuovo la password.';
     if (!confirm(msg)) return;
     await logout();
@@ -61,6 +62,7 @@ export function SettingsPage({ online, access }: Props) {
       <InstallCard />
 
       {access.ruolo === 'socio' && <AiUnlock access={access} />}
+      {access.ruolo === 'admin' && <RecuperaChiavi access={access} />}
       {access.ruolo === 'admin' && <GeminiSettings online={online} />}
       {access.ruolo === 'admin' && <PaidAiSettings online={online} />}
       {access.ruolo === 'admin' && <ReserveSettings online={online} />}
